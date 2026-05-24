@@ -1,0 +1,5 @@
+domain-hunter
+dist/
+results-*
+results.txt
+*.exe
