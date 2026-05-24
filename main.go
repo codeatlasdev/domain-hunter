@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -72,16 +73,22 @@ func printHelp() {
 	fmt.Println("  domh version          Show version info")
 	fmt.Println()
 	fmt.Println("Scan flags:")
-	fmt.Println("  --tld      TLDs (comma-separated)  [default: com]")
-	fmt.Println("  --length   Domain length (3-5)     [default: 3]")
-	fmt.Println("  --pattern  CVC, VCV, CVCV, ALL     [default: ALL]")
-	fmt.Println("  --workers  Concurrent workers      [default: 50]")
-	fmt.Println("  --format   Export: txt,json,csv    [default: txt]")
+	fmt.Println("  --tld              TLDs (comma-separated)       [default: com]")
+	fmt.Println("  --length           Domain length (3-5)          [default: 3]")
+	fmt.Println("  --pattern          CVC, VCV, CVCV, ALL          [default: ALL]")
+	fmt.Println("  --workers          Concurrent workers           [default: 50]")
+	fmt.Println("  --format           Export: txt,json,csv         [default: txt]")
+	fmt.Println("  --regex, -r        Regex filter for domain prefix")
+	fmt.Println("  --delay            Delay between queries (ms)   [default: 0]")
+	fmt.Println("  --show-registered  Also save registered domains to file")
 	fmt.Println()
 	fmt.Println("Check flags:")
-	fmt.Println("  --tld      TLDs (comma-separated)  [default: com]")
-	fmt.Println("  --workers  Concurrent workers      [default: 50]")
-	fmt.Println("  --format   Export: txt,json,csv    [default: txt]")
+	fmt.Println("  --tld              TLDs (comma-separated)       [default: com]")
+	fmt.Println("  --workers          Concurrent workers           [default: 50]")
+	fmt.Println("  --format           Export: txt,json,csv         [default: txt]")
+	fmt.Println("  --regex, -r        Regex filter for domain prefix")
+	fmt.Println("  --delay            Delay between queries (ms)   [default: 0]")
+	fmt.Println("  --show-registered  Also save registered domains to file")
 	fmt.Println()
 	fmt.Println("TLDs flags:")
 	fmt.Println("  --rdap     Only TLDs with RDAP support")
@@ -99,6 +106,9 @@ func runCheck(args []string) {
 	tlds := []string{"com"}
 	workers := 50
 	formats := []export.Format{export.FormatTXT}
+	regexFilter := ""
+	delayMs := 0
+	showRegistered := false
 
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
@@ -123,6 +133,21 @@ func runCheck(args []string) {
 				}
 				i++
 			}
+		case "--regex", "-r":
+			if i+1 < len(args) {
+				regexFilter = args[i+1]
+				i++
+			}
+		case "--delay":
+			if i+1 < len(args) {
+				d, _ := strconv.Atoi(args[i+1])
+				if d > 0 {
+					delayMs = d
+				}
+				i++
+			}
+		case "--show-registered":
+			showRegistered = true
 		}
 	}
 
@@ -151,11 +176,14 @@ func runCheck(args []string) {
 		os.Exit(1)
 	}
 
+	domains = applyRegexFilter(domains, regexFilter)
+
 	if !confirmLargeScan(len(domains), workers) {
 		return
 	}
 
-	startScanWithDomains(domains, tlds, workers, formats, "dict")
+	delay := time.Duration(delayMs) * time.Millisecond
+	startScanWithDomains(domains, tlds, workers, formats, "dict", delay, showRegistered)
 }
 
 func runTLDs(args []string) {
@@ -283,7 +311,7 @@ func runInteractive() {
 		return
 	}
 
-	startScanWithDomains(domains, cfg.TLDs, cfg.Workers, cfg.Formats, string(cfg.Pattern))
+	startScanWithDomains(domains, cfg.TLDs, cfg.Workers, cfg.Formats, string(cfg.Pattern), 0, false)
 }
 
 func runCLI(args []string) {
@@ -292,6 +320,9 @@ func runCLI(args []string) {
 	pattern := scanner.PatternAll
 	workers := 50
 	formats := []export.Format{export.FormatTXT}
+	regexFilter := ""
+	delayMs := 0
+	showRegistered := false
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -329,6 +360,21 @@ func runCLI(args []string) {
 				}
 				i++
 			}
+		case "--regex", "-r":
+			if i+1 < len(args) {
+				regexFilter = args[i+1]
+				i++
+			}
+		case "--delay":
+			if i+1 < len(args) {
+				d, _ := strconv.Atoi(args[i+1])
+				if d > 0 {
+					delayMs = d
+				}
+				i++
+			}
+		case "--show-registered":
+			showRegistered = true
 		}
 	}
 
@@ -338,7 +384,25 @@ func runCLI(args []string) {
 		os.Exit(1)
 	}
 
-	startScanWithDomains(domains, tlds, workers, formats, string(pattern))
+	domains = applyRegexFilter(domains, regexFilter)
+
+	delay := time.Duration(delayMs) * time.Millisecond
+	startScanWithDomains(domains, tlds, workers, formats, string(pattern), delay, showRegistered)
+}
+
+func applyRegexFilter(domains []string, regexFilter string) []string {
+	if regexFilter == "" {
+		return domains
+	}
+	re := regexp.MustCompile(regexFilter)
+	var filtered []string
+	for _, d := range domains {
+		name := strings.SplitN(d, ".", 2)[0]
+		if re.MatchString(name) {
+			filtered = append(filtered, d)
+		}
+	}
+	return filtered
 }
 
 // confirmLargeScan shows a warning for scans > 10000 domains. Returns false if user declines.
@@ -393,9 +457,9 @@ func formatNumber(n int) string {
 	return string(result)
 }
 
-func startScanWithDomains(domains []string, tlds []string, workers int, formats []export.Format, pattern string) {
+func startScanWithDomains(domains []string, tlds []string, workers int, formats []export.Format, pattern string, delay time.Duration, showRegistered bool) {
 	// Init exporter
-	exp, err := export.New(formats)
+	exp, err := export.NewWithOptions(formats, showRegistered)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Export error: %v\n", err)
 		os.Exit(1)
@@ -403,7 +467,7 @@ func startScanWithDomains(domains []string, tlds []string, workers int, formats 
 	defer exp.Close()
 
 	// Init scanner
-	sc := scanner.New(workers)
+	sc := scanner.NewWithDelay(workers, delay)
 
 	// Wire export to scanner results
 	originalOnResult := sc.OnResult

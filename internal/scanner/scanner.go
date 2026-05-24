@@ -14,12 +14,13 @@ import (
 )
 
 type Result struct {
-	Domain    string
-	TLD       string
-	Available bool
-	Error     bool
-	Method    string // "dns", "rdap", "dns+rdap"
-	Timestamp time.Time
+	Domain     string
+	TLD        string
+	Available  bool
+	Error      bool
+	Method     string   // primary method that determined result
+	Signatures []string // all methods that confirmed: "DNS_NS", "DNS_A", "DNS_MX", "RDAP", "WHOIS", "SSL"
+	Timestamp  time.Time
 }
 
 type Stats struct {
@@ -55,6 +56,7 @@ type Scanner struct {
 	httpClient *http.Client
 	resolvers  []*net.Resolver
 	workers    int
+	delay      time.Duration
 	stats      Stats
 	mu         sync.Mutex
 	results    []Result
@@ -64,6 +66,10 @@ type Scanner struct {
 }
 
 func New(workers int) *Scanner {
+	return NewWithDelay(workers, 0)
+}
+
+func NewWithDelay(workers int, delay time.Duration) *Scanner {
 	// Create a resolver pool — each resolver uses a different upstream
 	resolvers := make([]*net.Resolver, len(dnsResolvers))
 	for i, addr := range dnsResolvers {
@@ -97,6 +103,7 @@ func New(workers int) *Scanner {
 		httpClient: httpClient,
 		resolvers:  resolvers,
 		workers:    workers,
+		delay:      delay,
 		Done:       make(chan struct{}),
 	}
 }
@@ -150,6 +157,9 @@ func (s *Scanner) Run(domains []string) {
 				if s.OnResult != nil {
 					s.OnResult(r)
 				}
+				if s.delay > 0 {
+					time.Sleep(s.delay)
+				}
 			}
 		}(i)
 	}
@@ -164,13 +174,11 @@ func (s *Scanner) Run(domains []string) {
 	}()
 }
 
-// check uses a 2-phase strategy:
-// Phase 1: DNS NS lookup (fast, ~15ms, no rate limit)
-//   - If NS records found → TAKEN (100% certain)
-//   - If NXDOMAIN → candidate for available
-// Phase 2: RDAP confirmation (only for candidates, ~500ms)
-//   - 404 → AVAILABLE (confirmed)
-//   - 200 → TAKEN (domain registered but no DNS yet — parked/reserved)
+// check uses a multi-phase strategy:
+// Phase 1: DNS (NS + A + MX) — fast, no rate limit
+// Phase 2: RDAP confirmation — for candidates
+// Phase 3: WHOIS fallback — when RDAP fails
+// Phase 4: SSL — only when inconclusive
 func (s *Scanner) check(domain string, workerID int) Result {
 	parts := strings.SplitN(domain, ".", 2)
 	if len(parts) != 2 {
@@ -178,57 +186,100 @@ func (s *Scanner) check(domain string, workerID int) Result {
 	}
 	tld := parts[1]
 
+	var signatures []string
+
 	// Phase 1: DNS check (round-robin across resolvers)
 	resolver := s.resolvers[workerID%len(s.resolvers)]
-	dnsResult := s.checkDNS(domain, resolver)
+	dnsResult, dnsSigs := s.checkDNS(domain, resolver)
+	signatures = append(signatures, dnsSigs...)
 
 	if dnsResult == "taken" {
-		return Result{Domain: domain, TLD: tld, Available: false, Method: "dns", Timestamp: time.Now()}
+		return Result{Domain: domain, TLD: tld, Available: false, Method: "dns", Signatures: signatures, Timestamp: time.Now()}
 	}
 
 	if dnsResult == "error" {
 		// DNS failed — try RDAP directly
-		return s.checkRDAP(domain, tld)
+		r := s.checkRDAP(domain, tld)
+		if r.Available || !r.Error {
+			r.Signatures = signatures
+			if !r.Available {
+				r.Signatures = append(r.Signatures, "RDAP")
+			}
+			return r
+		}
+		// RDAP also failed — try WHOIS
+		whoisResult := checkWHOIS(domain)
+		if whoisResult == "taken" {
+			signatures = append(signatures, "WHOIS")
+			return Result{Domain: domain, TLD: tld, Available: false, Method: "whois", Signatures: signatures, Timestamp: time.Now()}
+		}
+		if whoisResult == "available" {
+			return Result{Domain: domain, TLD: tld, Available: true, Method: "whois", Signatures: signatures, Timestamp: time.Now()}
+		}
+		return Result{Domain: domain, TLD: tld, Error: true, Method: "dns", Signatures: signatures, Timestamp: time.Now()}
 	}
 
 	// Phase 2: DNS says NXDOMAIN — confirm with RDAP
-	// (some domains are registered but have no DNS records — parked domains)
 	baseURL := GetRDAPEndpoint(tld)
 	if baseURL == "" {
-		// No RDAP available — trust DNS result
-		return Result{Domain: domain, TLD: tld, Available: true, Method: "dns", Timestamp: time.Now()}
+		// No RDAP — try WHOIS as fallback
+		whoisResult := checkWHOIS(domain)
+		if whoisResult == "taken" {
+			signatures = append(signatures, "WHOIS")
+			return Result{Domain: domain, TLD: tld, Available: false, Method: "whois", Signatures: signatures, Timestamp: time.Now()}
+		}
+		return Result{Domain: domain, TLD: tld, Available: true, Method: "dns", Signatures: signatures, Timestamp: time.Now()}
 	}
 
 	rdapResult := s.checkRDAPDirect(domain, baseURL)
 	switch rdapResult {
 	case "available":
-		return Result{Domain: domain, TLD: tld, Available: true, Method: "dns+rdap", Timestamp: time.Now()}
+		return Result{Domain: domain, TLD: tld, Available: true, Method: "dns+rdap", Signatures: signatures, Timestamp: time.Now()}
 	case "taken":
-		return Result{Domain: domain, TLD: tld, Available: false, Method: "dns+rdap", Timestamp: time.Now()}
+		signatures = append(signatures, "RDAP")
+		return Result{Domain: domain, TLD: tld, Available: false, Method: "dns+rdap", Signatures: signatures, Timestamp: time.Now()}
 	default:
-		// RDAP error — trust DNS (NXDOMAIN is a strong signal)
-		return Result{Domain: domain, TLD: tld, Available: true, Method: "dns", Timestamp: time.Now()}
+		// RDAP error — use WHOIS as fallback
+		whoisResult := checkWHOIS(domain)
+		switch whoisResult {
+		case "available":
+			return Result{Domain: domain, TLD: tld, Available: true, Method: "dns+whois", Signatures: signatures, Timestamp: time.Now()}
+		case "taken":
+			signatures = append(signatures, "WHOIS")
+			return Result{Domain: domain, TLD: tld, Available: false, Method: "dns+whois", Signatures: signatures, Timestamp: time.Now()}
+		default:
+			// All inconclusive — try SSL as last resort
+			if checkSSL(domain) {
+				signatures = append(signatures, "SSL")
+				return Result{Domain: domain, TLD: tld, Available: false, Method: "ssl", Signatures: signatures, Timestamp: time.Now()}
+			}
+			// Trust DNS NXDOMAIN
+			return Result{Domain: domain, TLD: tld, Available: true, Method: "dns", Signatures: signatures, Timestamp: time.Now()}
+		}
 	}
 }
 
-// checkDNS queries NS records. Returns "taken", "available", or "error".
-func (s *Scanner) checkDNS(domain string, resolver *net.Resolver) string {
+// checkDNS queries NS, A, and MX records. Returns status and signatures of methods that confirmed "taken".
+func (s *Scanner) checkDNS(domain string, resolver *net.Resolver) (string, []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+
+	var sigs []string
 
 	// Check NS records first (most authoritative)
 	_, err := resolver.LookupNS(ctx, domain)
 	if err == nil {
-		return "taken" // has NS records = definitely registered
+		sigs = append(sigs, "DNS_NS")
+		return "taken", sigs
 	}
 
 	// Check if NXDOMAIN
 	if dnsErr, ok := err.(*net.DNSError); ok {
 		if dnsErr.IsNotFound {
-			return "available"
+			return "available", nil
 		}
 		if dnsErr.IsTemporary {
-			return "error"
+			return "error", nil
 		}
 	}
 
@@ -238,14 +289,29 @@ func (s *Scanner) checkDNS(domain string, resolver *net.Resolver) string {
 
 	ips, err := resolver.LookupHost(ctx2, domain)
 	if err == nil && len(ips) > 0 {
-		return "taken"
+		sigs = append(sigs, "DNS_A")
+		return "taken", sigs
 	}
 
 	if dnsErr, ok := err.(*net.DNSError); ok && dnsErr.IsNotFound {
-		return "available"
+		return "available", nil
 	}
 
-	return "error"
+	// Fallback: try MX record
+	ctx3, cancel3 := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel3()
+
+	mxRecords, err := resolver.LookupMX(ctx3, domain)
+	if err == nil && len(mxRecords) > 0 {
+		sigs = append(sigs, "DNS_MX")
+		return "taken", sigs
+	}
+
+	if dnsErr, ok := err.(*net.DNSError); ok && dnsErr.IsNotFound {
+		return "available", nil
+	}
+
+	return "error", nil
 }
 
 // checkRDAP does a full RDAP check (used when DNS fails entirely).
