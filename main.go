@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -9,12 +10,19 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh/spinner"
 	"github.com/charmbracelet/lipgloss"
+	selfupdate "github.com/creativeprojects/go-selfupdate"
 
 	"github.com/codeatlasdev/domain-hunter/internal/export"
 	"github.com/codeatlasdev/domain-hunter/internal/scanner"
 	"github.com/codeatlasdev/domain-hunter/internal/tui"
 	"github.com/codeatlasdev/domain-hunter/internal/wizard"
+)
+
+var (
+	version = "dev"
+	commit  = "none"
 )
 
 var (
@@ -32,6 +40,10 @@ func main() {
 	switch os.Args[1] {
 	case "scan":
 		runCLI(os.Args[2:])
+	case "update":
+		runUpdate()
+	case "version":
+		fmt.Printf("domh %s (%s)\n", version, commit)
 	case "help", "--help", "-h":
 		printHelp()
 	default:
@@ -42,22 +54,76 @@ func main() {
 }
 
 func printHelp() {
-	fmt.Println(titleStyle.Render("◆ Domain Hunter") + " — bulk domain availability via RDAP")
+	fmt.Println(titleStyle.Render("◆ domh") + " — bulk domain availability checker")
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  domain-hunter              Interactive wizard")
-	fmt.Println("  domain-hunter scan [flags] Direct scan")
+	fmt.Println("  domh              Interactive wizard")
+	fmt.Println("  domh scan [flags] Direct scan")
+	fmt.Println("  domh update       Self-update to latest version")
+	fmt.Println("  domh version      Show version info")
 	fmt.Println()
 	fmt.Println("Flags:")
-	fmt.Println("  --tld      TLDs (comma-separated: com,dev,io)  [default: com]")
-	fmt.Println("  --length   Domain length (3, 4, 5)             [default: 3]")
-	fmt.Println("  --pattern  Pattern (CVC, VCV, CVCV, CVCVC, ALL) [default: ALL]")
-	fmt.Println("  --workers  Concurrent workers                  [default: 50]")
-	fmt.Println("  --format   Export formats (comma-separated)    [default: txt]")
-	fmt.Println()
-	fmt.Println("Examples:")
-	fmt.Println("  domain-hunter scan --tld com,dev --length 4 --workers 80 --format json")
-	fmt.Println("  domain-hunter scan --tld com --length 3 --pattern cvc")
+	fmt.Println("  --tld      TLDs (comma-separated)  [default: com]")
+	fmt.Println("  --length   Domain length (3-5)     [default: 3]")
+	fmt.Println("  --pattern  CVC, VCV, CVCV, ALL     [default: ALL]")
+	fmt.Println("  --workers  Concurrent workers      [default: 50]")
+	fmt.Println("  --format   Export: txt,json,csv    [default: txt]")
+}
+
+func runUpdate() {
+	var latest *selfupdate.Release
+	var found bool
+	var detectErr error
+
+	err := spinner.New().
+		Title("Checking for updates...").
+		Action(func() {
+			latest, found, detectErr = selfupdate.DetectLatest(context.Background(), selfupdate.ParseSlug("codeatlasdev/domain-hunter"))
+		}).
+		Run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Spinner error: %v\n", err)
+		os.Exit(1)
+	}
+	if detectErr != nil {
+		fmt.Fprintf(os.Stderr, "Error checking for updates: %v\n", detectErr)
+		os.Exit(1)
+	}
+	if !found {
+		fmt.Println("No releases found.")
+		return
+	}
+
+	if latest.LessOrEqual(version) {
+		fmt.Printf("Already up to date (%s).\n", version)
+		return
+	}
+
+	fmt.Printf("New version available: %s → %s\n", version, latest.Version())
+
+	exe, err := selfupdate.ExecutablePath()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Could not locate executable: %v\n", err)
+		os.Exit(1)
+	}
+
+	var updateErr error
+	err = spinner.New().
+		Title(fmt.Sprintf("Updating to %s...", latest.Version())).
+		Action(func() {
+			updateErr = selfupdate.DefaultUpdater().UpdateTo(context.Background(), latest, exe)
+		}).
+		Run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Spinner error: %v\n", err)
+		os.Exit(1)
+	}
+	if updateErr != nil {
+		fmt.Fprintf(os.Stderr, "Update failed: %v\n", updateErr)
+		os.Exit(1)
+	}
+
+	fmt.Printf("✓ Updated to %s\n", latest.Version())
 }
 
 func runInteractive() {

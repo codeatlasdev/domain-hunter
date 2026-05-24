@@ -2,7 +2,7 @@
 set -e
 
 REPO="codeatlasdev/domain-hunter"
-BINARY="domain-hunter"
+BINARY="domh"
 INSTALL_DIR="/usr/local/bin"
 
 # Detect OS and arch
@@ -23,7 +23,7 @@ fi
 
 URL="https://github.com/$REPO/releases/download/$LATEST/${BINARY}_${OS}_${ARCH}.tar.gz"
 
-echo "◆ Domain Hunter installer"
+echo "◆ domh installer"
 echo "  Version: $LATEST"
 echo "  OS: $OS/$ARCH"
 echo "  URL: $URL"
@@ -45,4 +45,4 @@ rm -rf "$TMP"
 
 echo "  ✓ Installed to $INSTALL_DIR/$BINARY"
 echo ""
-echo "  Run: domain-hunter"
+echo "  Run: domh"

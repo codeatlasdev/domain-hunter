@@ -1,4 +1,4 @@
-# ◆ Domain Hunter
+# ◆ domh
 
 Bulk domain availability checker powered by RDAP. Beautiful TUI, blazing fast.
 
@@ -8,7 +8,7 @@ Bulk domain availability checker powered by RDAP. Beautiful TUI, blazing fast.
 
 ```
 ╭──────────────────────────────────────────────────╮
-│  ◆ Domain Hunter v2                              │
+│  ◆ domh v2                                       │
 │    4-letter .com,.dev • 80 workers • RDAP        │
 ╰──────────────────────────────────────────────────╯
 
@@ -32,7 +32,7 @@ Bulk domain availability checker powered by RDAP. Beautiful TUI, blazing fast.
 
 ```bash
 # macOS / Linux (Homebrew)
-brew install codeatlasdev/tap/domain-hunter
+brew install codeatlasdev/tap/domh
 
 # Go install
 go install github.com/codeatlasdev/domain-hunter@latest
@@ -48,7 +48,7 @@ curl -fsSL https://raw.githubusercontent.com/codeatlasdev/domain-hunter/main/ins
 Just run without arguments:
 
 ```bash
-domain-hunter
+domh
 ```
 
 You'll get a beautiful wizard to configure:
@@ -62,13 +62,13 @@ You'll get a beautiful wizard to configure:
 
 ```bash
 # 4-letter .com domains, CVCV pattern, 80 workers
-domain-hunter scan --tld com --length 4 --pattern cvcv --workers 80
+domh scan --tld com --length 4 --pattern cvcv --workers 80
 
 # Multiple TLDs, export as JSON
-domain-hunter scan --tld com,dev,io --length 3 --format json
+domh scan --tld com,dev,io --length 3 --format json
 
 # 5-letter domains, all patterns
-domain-hunter scan --tld com --length 5 --pattern all --workers 100
+domh scan --tld com --length 5 --pattern all --workers 100
 ```
 
 ## How It Works
@@ -125,8 +125,8 @@ Files: `results-{timestamp}.{ext}`
 ```bash
 git clone https://github.com/codeatlasdev/domain-hunter
 cd domain-hunter
-go build -o domain-hunter .
-./domain-hunter
+go build -o domh .
+./domh
 ```
 
 ## Release

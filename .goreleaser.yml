@@ -8,7 +8,7 @@ before:
 
 builds:
   - main: .
-    binary: domain-hunter
+    binary: domh
     env:
       - CGO_ENABLED=0
     goos:
