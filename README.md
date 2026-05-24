@@ -11,23 +11,7 @@ The fastest bulk domain availability checker. 1,437 TLDs. 19 registrars. Price c
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/codeatlasdev/domain-hunter/ci.yml?style=flat-square&label=CI)](https://github.com/codeatlasdev/domain-hunter/actions)
 
-```
-◆ domh  4-letter .com,.dev · CVCV · 80 workers                              q quit
- ⠋ 4521/9025 ██████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 50%
- ● 47 available  ○ 4389 taken  ⚠ 85 errors  ⚡ 312/s  ⏱ 14s  → 14s
-──────────────────────────────────────────────────────────────────────────────────
-✓ Available (47)                    │ ◌ Activity
-                                    │
-  buxo.com   $7 Spaceship           │   [16:43:25] ✓ buxo.com
-  zupo.dev   $10 Cloudflare         │   [16:43:25] · tevo.com
-  kevi.dev   $10 Cloudflare         │   [16:43:26] ✓ zupo.dev
-  miru.app   $14 Porkbun            │   [16:43:26] · hivo.com
-  noku.com   $8 Cloudflare          │   [16:43:26] ✓ kevi.dev
-                                    │
-  + 42 more (see results file)      │
-──────────────────────────────────────────────────────────────────────────────────
- results auto-saved                                                  domh v1.5.0
-```
+<img src="demo.gif" alt="domh demo" width="100%" />
 
 [Install](#install) · [Quick Start](#quick-start) · [Features](#features) · [Presets](#presets) · [Docs](#usage)
 
