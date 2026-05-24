@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="800" y2="520">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#1E293B"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="800" height="520" rx="16" fill="url(#bg)"/>
+  
+  <!-- Title -->
+  <text x="400" y="40" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="14" font-weight="600" fill="#94A3B8">HOW IT WORKS</text>
+  
+  <!-- Step 1: Generate -->
+  <rect x="300" y="60" width="200" height="44" rx="8" fill="#2563EB"/>
+  <text x="400" y="86" text-anchor="middle" font-family="system-ui,sans-serif" font-size="13" font-weight="600" fill="white">1. Generate Names</text>
+  <text x="400" y="120" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#64748B">CVC · CVCV · Dictionary · Prefix/Suffix</text>
+  
+  <!-- Arrow -->
+  <path d="M400 104 L400 140" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+  
+  <!-- Step 2: DNS -->
+  <rect x="300" y="140" width="200" height="44" rx="8" fill="#1D4ED8"/>
+  <text x="400" y="166" text-anchor="middle" font-family="system-ui,sans-serif" font-size="13" font-weight="600" fill="white">2. DNS Check</text>
+  <text x="400" y="200" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#64748B">16 resolvers · NS → A → MX · ~15ms</text>
+  
+  <!-- Arrow -->
+  <path d="M400 184 L400 220" stroke="#334155" stroke-width="2"/>
+  
+  <!-- Step 3: RDAP -->
+  <rect x="300" y="220" width="200" height="44" rx="8" fill="#1E40AF"/>
+  <text x="400" y="246" text-anchor="middle" font-family="system-ui,sans-serif" font-size="13" font-weight="600" fill="white">3. RDAP Confirm</text>
+  <text x="400" y="280" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#64748B">404 = available · 200 = taken · ~500ms</text>
+  
+  <!-- Arrow -->
+  <path d="M400 264 L400 300" stroke="#334155" stroke-width="2"/>
+  
+  <!-- Step 4: WHOIS -->
+  <rect x="300" y="300" width="200" height="44" rx="8" fill="#334155"/>
+  <text x="400" y="326" text-anchor="middle" font-family="system-ui,sans-serif" font-size="13" font-weight="600" fill="#CBD5E1">4. WHOIS Fallback</text>
+  <text x="400" y="360" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#64748B">3 servers · for TLDs without RDAP</text>
+  
+  <!-- Arrow -->
+  <path d="M400 344 L400 380" stroke="#334155" stroke-width="2"/>
+  
+  <!-- Step 5: Price -->
+  <rect x="300" y="380" width="200" height="44" rx="8" fill="#F59E0B"/>
+  <text x="400" y="406" text-anchor="middle" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#0F172A">5. Price Compare</text>
+  <text x="400" y="440" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#64748B">19 registrars · cheapest first · buy links</text>
+  
+  <!-- Arrow -->
+  <path d="M400 424 L400 460" stroke="#334155" stroke-width="2"/>
+  
+  <!-- Step 6: Export -->
+  <rect x="300" y="460" width="200" height="44" rx="8" fill="#10B981"/>
+  <text x="400" y="486" text-anchor="middle" font-family="system-ui,sans-serif" font-size="13" font-weight="600" fill="white">6. Export + TUI</text>
+  
+  <!-- Side labels -->
+  <!-- Left: Available -->
+  <rect x="60" y="230" width="140" height="36" rx="18" fill="#10B981" filter="url(#glow)"/>
+  <text x="130" y="253" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" font-weight="600" fill="white">✓ Available</text>
+  <path d="M200 248 L300 248" stroke="#10B981" stroke-width="1.5" stroke-dasharray="4"/>
+  
+  <!-- Right: Taken -->
+  <rect x="600" y="230" width="120" height="36" rx="18" fill="#64748B"/>
+  <text x="660" y="253" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" font-weight="600" fill="white">○ Taken</text>
+  <path d="M500 248 L600 248" stroke="#64748B" stroke-width="1.5" stroke-dasharray="4"/>
+  
+  <!-- Speed badge -->
+  <rect x="600" y="70" width="130" height="28" rx="14" fill="#06B6D4" opacity="0.15"/>
+  <text x="665" y="89" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="600" fill="#06B6D4">⚡ ~500 domains/s</text>
+  
+  <!-- TLD badge -->
+  <rect x="70" y="70" width="130" height="28" rx="14" fill="#A78BFA" opacity="0.15"/>
+  <text x="135" y="89" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="600" fill="#A78BFA">🌍 1,437 TLDs</text>
+</svg>

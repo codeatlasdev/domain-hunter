@@ -162,31 +162,9 @@ Scan flags:
 
 ## How It Works
 
-```mermaid
-flowchart TD
-    A[domh scan] --> B[Generate Names]
-    B --> |CVC/CVCV/Dictionary/Prefix+Suffix| C[DNS Check]
-    C --> |16 resolvers · ~15ms| D{Has NS/A/MX?}
-    D --> |Yes| TAKEN[Taken]
-    D --> |NXDOMAIN| E[RDAP Confirm]
-    E --> |404| F[Available ✓]
-    E --> |200| TAKEN
-    E --> |Error| G[WHOIS Fallback]
-    G --> |3 servers| H{Found?}
-    H --> |Available| F
-    H --> |Registered| TAKEN
-    H --> |Unknown| I[SSL Check]
-    I --> |Has cert| TAKEN
-    I --> |No cert| F
-    F --> J[Price Compare]
-    J --> |19 registrars| K[Export + TUI]
-
-    style A fill:#2563EB,color:#fff,stroke:none
-    style F fill:#10B981,color:#fff,stroke:none
-    style TAKEN fill:#64748B,color:#fff,stroke:none
-    style J fill:#F59E0B,color:#fff,stroke:none
-    style K fill:#06B6D4,color:#fff,stroke:none
-```
+<div align="center">
+<img src="assets/how-it-works.svg" alt="How domh works" width="100%" />
+</div>
 
 ---
 
