@@ -5,3 +5,4 @@ results-*
 results.txt
 *.exe
 __plans/
+.kiro/
