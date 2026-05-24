@@ -101,7 +101,7 @@ func printHelp() {
 	fmt.Println("  --dry-run      Preview domains without checking")
 	fmt.Println("  --yes, -y      Skip confirmations")
 	fmt.Println("  --force        Skip performance warnings")
-	fmt.Println("  --batch        Plain output (no TUI, CI-friendly)")
+	fmt.Println("  --batch, --no-tui  Plain output (no TUI, CI/agent-friendly)")
 	fmt.Println()
 	fmt.Println("Check flags:")
 	fmt.Println("  --tld              TLDs (comma-separated)       [default: com]")
@@ -586,7 +586,7 @@ func runCLI(args []string) {
 			yes = true
 		case "--force":
 			force = true
-		case "--batch":
+		case "--batch", "--no-tui":
 			batch = true
 		default:
 			if !strings.HasPrefix(args[i], "-") && baseName == "" {
