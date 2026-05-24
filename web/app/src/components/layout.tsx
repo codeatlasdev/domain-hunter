@@ -5,8 +5,13 @@ export function Layout() {
     <div className="min-h-screen flex flex-col">
       <header className="border-b-[2.5px] border-border bg-white px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-6">
-          <Link to="/" className="text-xl font-black text-primary tracking-tight">
-            ◆ domh
+          <Link to="/" className="flex items-center gap-1.5 text-xl font-black text-primary tracking-tight">
+            <svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="4" y="4" width="24" height="24" rx="2" fill="#2563EB"/>
+              <path d="M16 6L26 16L16 26L6 16Z" fill="#EFF6FF"/>
+              <path d="M16 10L22 16L16 22L10 16Z" fill="#2563EB"/>
+            </svg>
+            domh
           </Link>
           <nav className="hidden sm:flex items-center gap-1 text-sm font-bold">
             <Link
@@ -42,7 +47,14 @@ export function Layout() {
       <footer className="border-t-[2.5px] border-border bg-white px-6 py-8">
         <div className="max-w-4xl mx-auto flex flex-wrap gap-8 justify-between text-sm">
           <div>
-            <div className="font-black text-primary mb-2">◆ domh</div>
+            <div className="font-black text-primary mb-2 flex items-center gap-1.5">
+              <svg width="16" height="16" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="4" y="4" width="24" height="24" rx="2" fill="#2563EB"/>
+                <path d="M16 6L26 16L16 26L6 16Z" fill="#EFF6FF"/>
+                <path d="M16 10L22 16L16 22L10 16Z" fill="#2563EB"/>
+              </svg>
+              domh
+            </div>
             <p className="text-slate-500 text-xs max-w-[200px]">
               Bulk domain availability checker across 1,437 TLDs. Open source.
             </p>

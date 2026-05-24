@@ -165,11 +165,11 @@ export function Docs() {
             </div>
 
             {/* GIF */}
-            <div className="border-[2.5px] border-border shadow-brutal-sm overflow-hidden bg-slate-900 max-w-2xl">
+            <div className="border-[2.5px] border-border shadow-brutal-sm overflow-hidden bg-slate-900">
               <img
                 src={`${section.gif}?v=3`}
                 alt={`${section.title} demo`}
-                className="w-full h-auto block"
+                className="w-full h-auto block max-h-[300px] object-cover object-top"
               />
             </div>
 
