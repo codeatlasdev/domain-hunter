@@ -14,20 +14,15 @@ import (
 	"github.com/codeatlasdev/domain-hunter/internal/scanner"
 )
 
-// Colors
 var (
 	blue     = lipgloss.Color("#2563EB")
 	green    = lipgloss.Color("#10B981")
 	red      = lipgloss.Color("#EF4444")
 	amber    = lipgloss.Color("#F59E0B")
 	cyan     = lipgloss.Color("#06B6D4")
-	slate400 = lipgloss.Color("#94A3B8")
 	slate500 = lipgloss.Color("#64748B")
 	white    = lipgloss.Color("#F8FAFC")
-)
 
-// Styles
-var (
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(blue)
 	dimStyle   = lipgloss.NewStyle().Foreground(slate500)
 	boldWhite  = lipgloss.NewStyle().Bold(true).Foreground(white)
@@ -35,34 +30,18 @@ var (
 	redStyle   = lipgloss.NewStyle().Foreground(red)
 	amberStyle = lipgloss.NewStyle().Foreground(amber)
 	cyanStyle  = lipgloss.NewStyle().Foreground(cyan)
-
-	headerStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(blue).
-			Padding(0, 2).
-			MarginBottom(1)
-
-	boxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#334155")).
-			Padding(0, 2)
-
-	availBox = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(green).
-			Padding(0, 2)
 )
+
+type availDomain struct {
+	Domain  string
+	Pricing *pricing.PriceResult
+}
 
 type Config struct {
 	TLDs    []string
 	Length  int
 	Pattern string
 	Workers int
-}
-
-type availDomain struct {
-	Domain  string
-	Pricing *pricing.PriceResult
 }
 
 type Model struct {
@@ -73,6 +52,8 @@ type Model struct {
 	logs      []string
 	mu        sync.Mutex
 	done      bool
+	width     int
+	height    int
 }
 
 type tickMsg struct{}
@@ -87,6 +68,8 @@ func NewModel(sc *scanner.Scanner, cfg Config) *Model {
 		spinner: s,
 		scanner: sc,
 		config:  cfg,
+		width:   80,
+		height:  24,
 	}
 
 	sc.OnResult = func(r scanner.Result) {
@@ -94,7 +77,8 @@ func NewModel(sc *scanner.Scanner, cfg Config) *Model {
 		defer m.mu.Unlock()
 		ts := time.Now().Format("15:04:05")
 		if r.Available {
-			m.available = append(m.available, availDomain{Domain: r.Domain, Pricing: r.Pricing})
+			pr := pricing.GetPrices(r.Domain)
+			m.available = append(m.available, availDomain{Domain: r.Domain, Pricing: &pr})
 			m.logs = append(m.logs, fmt.Sprintf("[%s] ✓ %s", ts, r.Domain))
 		} else if r.Error {
 			m.logs = append(m.logs, fmt.Sprintf("[%s] ⚠ %s (error)", ts, r.Domain))
@@ -126,6 +110,10 @@ func waitDone(ch chan struct{}) tea.Cmd {
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c", "esc":
@@ -146,15 +134,37 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) View() string {
 	stats := m.scanner.Stats()
+	w := m.width
+	if w < 40 {
+		w = 40
+	}
+
+	// Calculate how many lines we can use for available + logs
+	// Header(3) + progress(3) + stats(2) + footer(1) + borders(~6) = ~15 fixed lines
+	availableLines := (m.height - 15) / 2
+	if availableLines < 3 {
+		availableLines = 3
+	}
+	if availableLines > 12 {
+		availableLines = 12
+	}
+	logLines := availableLines
+
+	contentWidth := w - 4 // padding for borders
+
 	var b strings.Builder
 
 	// Header
-	tldStr := strings.Join(m.config.TLDs, ", .")
-	header := headerStyle.Render(
-		titleStyle.Render("◆ Domain Hunter") + "  " +
-			dimStyle.Render(fmt.Sprintf("%d-letter .%s • %s • %d workers",
-				m.config.Length, tldStr, m.config.Pattern, m.config.Workers)),
-	)
+	tldStr := strings.Join(m.config.TLDs, ",.")
+	headerContent := titleStyle.Render("◆ domh") + "  " +
+		dimStyle.Render(fmt.Sprintf("%d-letter .%s • %s • %d workers",
+			m.config.Length, tldStr, m.config.Pattern, m.config.Workers))
+	header := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(blue).
+		Padding(0, 1).
+		Width(contentWidth).
+		Render(headerContent)
 	b.WriteString(header + "\n\n")
 
 	// Progress
@@ -175,8 +185,14 @@ func (m *Model) View() string {
 		eta = (time.Duration(remaining) * time.Second).Round(time.Second).String()
 	}
 
-	// Bar
-	barW := 40
+	// Responsive bar width
+	barW := contentWidth - 20 // space for spinner + count + pct
+	if barW < 10 {
+		barW = 10
+	}
+	if barW > 60 {
+		barW = 60
+	}
 	filled := (pct * barW) / 100
 	bar := lipgloss.NewStyle().Foreground(blue).Render(strings.Repeat("━", filled)) +
 		lipgloss.NewStyle().Foreground(lipgloss.Color("#334155")).Render(strings.Repeat("─", barW-filled))
@@ -188,25 +204,38 @@ func (m *Model) View() string {
 		dimStyle.Render(fmt.Sprintf("%d%%", pct)),
 	))
 
-	// Stats row
+	// Stats row - responsive
 	m.mu.Lock()
 	avail := len(m.available)
 	m.mu.Unlock()
-
 	errors := int(stats.Errors)
 	taken := checked - avail - errors
 
-	statsLine := fmt.Sprintf("  %s %s  %s %s  %s %s  %s %s  %s %s  %s %s",
-		dimStyle.Render("available"), greenBold.Render(fmt.Sprintf("%d", avail)),
-		dimStyle.Render("taken"), boldWhite.Render(fmt.Sprintf("%d", taken)),
-		dimStyle.Render("errors"), redStyle.Render(fmt.Sprintf("%d", errors)),
-		dimStyle.Render("rate"), amberStyle.Render(fmt.Sprintf("%.0f/s", rate)),
-		dimStyle.Render("elapsed"), cyanStyle.Render(elapsed.Round(time.Second).String()),
-		dimStyle.Render("eta"), boldWhite.Render(eta),
-	)
-	b.WriteString(statsLine + "\n\n")
+	if w > 90 {
+		// Wide: all stats on one line
+		b.WriteString(fmt.Sprintf("  %s %s  %s %s  %s %s  %s %s  %s %s  %s %s\n\n",
+			dimStyle.Render("available"), greenBold.Render(fmt.Sprintf("%d", avail)),
+			dimStyle.Render("taken"), boldWhite.Render(fmt.Sprintf("%d", taken)),
+			dimStyle.Render("errors"), redStyle.Render(fmt.Sprintf("%d", errors)),
+			dimStyle.Render("rate"), amberStyle.Render(fmt.Sprintf("%.0f/s", rate)),
+			dimStyle.Render("elapsed"), cyanStyle.Render(elapsed.Round(time.Second).String()),
+			dimStyle.Render("eta"), boldWhite.Render(eta),
+		))
+	} else {
+		// Narrow: two lines
+		b.WriteString(fmt.Sprintf("  %s %s  %s %s  %s %s\n",
+			dimStyle.Render("available"), greenBold.Render(fmt.Sprintf("%d", avail)),
+			dimStyle.Render("taken"), boldWhite.Render(fmt.Sprintf("%d", taken)),
+			dimStyle.Render("errors"), redStyle.Render(fmt.Sprintf("%d", errors)),
+		))
+		b.WriteString(fmt.Sprintf("  %s %s  %s %s  %s %s\n\n",
+			dimStyle.Render("rate"), amberStyle.Render(fmt.Sprintf("%.0f/s", rate)),
+			dimStyle.Render("elapsed"), cyanStyle.Render(elapsed.Round(time.Second).String()),
+			dimStyle.Render("eta"), boldWhite.Render(eta),
+		))
+	}
 
-	// Available domains (max 8 lines)
+	// Available domains
 	m.mu.Lock()
 	availDomains := make([]availDomain, len(m.available))
 	copy(availDomains, m.available)
@@ -218,30 +247,44 @@ func (m *Model) View() string {
 		var av strings.Builder
 		av.WriteString(greenBold.Render("● Available") + "\n\n")
 		show := availDomains
-		if len(show) > 8 {
-			show = show[len(show)-8:]
+		if len(show) > availableLines {
+			show = show[len(show)-availableLines:]
 		}
 		for _, d := range show {
 			priceStr := ""
 			if d.Pricing != nil && d.Pricing.Cheapest != nil {
 				priceStr = dimStyle.Render(fmt.Sprintf("  $%.2f (%s)", d.Pricing.Cheapest.RegisterPrice, d.Pricing.Cheapest.Registrar))
 			}
-			av.WriteString(fmt.Sprintf("  %s %s%s\n", greenBold.Render("✓"), boldWhite.Render(d.Domain), priceStr))
+			line := fmt.Sprintf("  %s %s%s", greenBold.Render("✓"), boldWhite.Render(d.Domain), priceStr)
+			// Truncate if too wide
+			if lipgloss.Width(line) > contentWidth-2 {
+				line = fmt.Sprintf("  %s %s", greenBold.Render("✓"), boldWhite.Render(d.Domain))
+			}
+			av.WriteString(line + "\n")
 		}
-		if len(availDomains) > 8 {
-			av.WriteString(dimStyle.Render(fmt.Sprintf("\n  + %d more (see results file)", len(availDomains)-8)))
+		if len(availDomains) > availableLines {
+			av.WriteString(dimStyle.Render(fmt.Sprintf("\n  + %d more (see results file)", len(availDomains)-availableLines)))
 		}
-		b.WriteString(availBox.Render(av.String()) + "\n\n")
+		availBoxStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(green).
+			Padding(0, 1).
+			Width(contentWidth)
+		b.WriteString(availBoxStyle.Render(av.String()) + "\n\n")
 	}
 
-	// Activity log (max 8 lines)
+	// Activity log
 	var logContent strings.Builder
 	logContent.WriteString(dimStyle.Bold(true).Render("● Activity") + "\n\n")
 	start := 0
-	if len(logs) > 8 {
-		start = len(logs) - 8
+	if len(logs) > logLines {
+		start = len(logs) - logLines
 	}
 	for _, l := range logs[start:] {
+		// Truncate long lines
+		if len(l) > contentWidth-4 {
+			l = l[:contentWidth-7] + "..."
+		}
 		if strings.Contains(l, "✓") {
 			logContent.WriteString("  " + greenBold.Render(l) + "\n")
 		} else if strings.Contains(l, "⚠") {
@@ -250,7 +293,12 @@ func (m *Model) View() string {
 			logContent.WriteString("  " + dimStyle.Render(l) + "\n")
 		}
 	}
-	b.WriteString(boxStyle.Render(logContent.String()) + "\n\n")
+	logBoxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#334155")).
+		Padding(0, 1).
+		Width(contentWidth)
+	b.WriteString(logBoxStyle.Render(logContent.String()) + "\n\n")
 
 	// Footer
 	b.WriteString(dimStyle.Render("  q quit • results saved in real-time"))
