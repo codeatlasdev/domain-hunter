@@ -206,7 +206,60 @@ domh update
 | Regex filter | ✅ | ❌ | ✅ | ❌ |
 | CI/batch mode | ✅ | ✅ | ❌ | ❌ |
 | Offline fallback | ✅ 32 TLDs | ✅ | ❌ | ❌ |
-| MCP server | 🔜 | ✅ | ❌ | ❌ |
+| MCP server | ✅ | ✅ | ❌ | ❌ |
+
+---
+
+## AI Agent Integration
+
+domh ships as an MCP (Model Context Protocol) server, letting AI agents check domains, compare prices, and generate names directly.
+
+### Setup
+
+```bash
+# Install the standalone MCP binary
+go install github.com/codeatlasdev/domain-hunter/cmd/mcp@latest
+
+# Or use the built-in subcommand (same binary)
+domh mcp
+```
+
+### Claude Code / Kiro
+
+Add to `.mcp.json`:
+```json
+{
+  "mcpServers": {
+    "domh": {
+      "command": "domh-mcp"
+    }
+  }
+}
+```
+
+### Cursor / VS Code Copilot
+
+Add to your MCP settings:
+```json
+{
+  "mcpServers": {
+    "domh": {
+      "command": "domh-mcp"
+    }
+  }
+}
+```
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `check_domain` | Check single domain availability |
+| `check_domains` | Bulk check (comma-separated) |
+| `check_with_preset` | Check name across TLD preset |
+| `generate_names` | Generate pronounceable names |
+| `get_prices` | Price comparison across 19 registrars |
+| `list_presets` | List all TLD presets |
 
 ---
 

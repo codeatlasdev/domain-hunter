@@ -381,6 +381,35 @@ func (s *Scanner) checkRDAPDirect(domain, baseURL string) string {
 	}
 }
 
+// CheckSingle checks a single domain synchronously (for MCP/API use).
+func CheckSingle(domain string) Result {
+	s := New(1)
+	r := s.check(domain, 0)
+	if r.Available {
+		pr := pricing.GetPrices(r.Domain)
+		r.Pricing = &pr
+	}
+	return r
+}
+
+// CheckMultiple checks multiple domains synchronously (for MCP/API use).
+func CheckMultiple(domains []string) []Result {
+	s := New(len(domains))
+	if s.workers > 10 {
+		s.workers = 10
+	}
+	results := make([]Result, len(domains))
+	for i, d := range domains {
+		r := s.check(d, i%len(s.resolvers))
+		if r.Available {
+			pr := pricing.GetPrices(r.Domain)
+			r.Pricing = &pr
+		}
+		results[i] = r
+	}
+	return results
+}
+
 // GenerateAll creates domains for given TLDs, length, and pattern.
 func GenerateAll(tlds []string, length int, pattern string) []string {
 	var all []string
