@@ -1,7 +1,8 @@
 package scanner
 
-// RDAP providers by TLD — sourced from IANA bootstrap (data.iana.org/rdap/dns.json).
-// Protocol: HTTP GET → 200 = registered, 404 = available.
+import "github.com/codeatlasdev/domain-hunter/internal/registry"
+
+// Providers is kept for backward compatibility — populated from registry cache.
 var Providers = map[string]string{
 	"com": "https://rdap.verisign.com/com/v1/domain/",
 	"net": "https://rdap.verisign.com/net/v1/domain/",
@@ -14,3 +15,25 @@ var Providers = map[string]string{
 }
 
 var SupportedTLDs = []string{"com", "net", "org", "dev", "app", "io", "co", "xyz"}
+
+// GetRDAPEndpoint resolves the RDAP endpoint for any TLD dynamically.
+// Falls back to the hardcoded Providers map if registry has no data.
+func GetRDAPEndpoint(tld string) string {
+	if url, ok := Providers[tld]; ok {
+		return url
+	}
+	return registry.GetRDAPEndpoint(tld)
+}
+
+// InitSupportedTLDs populates SupportedTLDs from the registry cache.
+func InitSupportedTLDs() {
+	tlds, err := registry.GetCachedTLDs()
+	if err != nil || len(tlds) == 0 {
+		return
+	}
+	all := make([]string, 0, len(tlds))
+	for _, t := range tlds {
+		all = append(all, t.Name)
+	}
+	SupportedTLDs = all
+}

@@ -193,8 +193,8 @@ func (s *Scanner) check(domain string, workerID int) Result {
 
 	// Phase 2: DNS says NXDOMAIN — confirm with RDAP
 	// (some domains are registered but have no DNS records — parked domains)
-	baseURL, hasRDAP := Providers[tld]
-	if !hasRDAP {
+	baseURL := GetRDAPEndpoint(tld)
+	if baseURL == "" {
 		// No RDAP available — trust DNS result
 		return Result{Domain: domain, TLD: tld, Available: true, Method: "dns", Timestamp: time.Now()}
 	}
@@ -250,8 +250,8 @@ func (s *Scanner) checkDNS(domain string, resolver *net.Resolver) string {
 
 // checkRDAP does a full RDAP check (used when DNS fails entirely).
 func (s *Scanner) checkRDAP(domain, tld string) Result {
-	baseURL, ok := Providers[tld]
-	if !ok {
+	baseURL := GetRDAPEndpoint(tld)
+	if baseURL == "" {
 		return Result{Domain: domain, TLD: tld, Error: true, Method: "rdap", Timestamp: time.Now()}
 	}
 

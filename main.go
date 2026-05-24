@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ import (
 	selfupdate "github.com/creativeprojects/go-selfupdate"
 
 	"github.com/codeatlasdev/domain-hunter/internal/export"
+	"github.com/codeatlasdev/domain-hunter/internal/registry"
 	"github.com/codeatlasdev/domain-hunter/internal/scanner"
 	"github.com/codeatlasdev/domain-hunter/internal/tui"
 	"github.com/codeatlasdev/domain-hunter/internal/wizard"
@@ -29,6 +31,7 @@ var (
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#2563EB"))
 	greenBold  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#10B981"))
 	dimStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748B"))
+	warnStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F59E0B"))
 )
 
 func main() {
@@ -40,6 +43,10 @@ func main() {
 	switch os.Args[1] {
 	case "scan":
 		runCLI(os.Args[2:])
+	case "check":
+		runCheck(os.Args[2:])
+	case "tlds":
+		runTLDs(os.Args[2:])
 	case "update":
 		runUpdate()
 	case "version":
@@ -57,17 +64,150 @@ func printHelp() {
 	fmt.Println(titleStyle.Render("◆ domh") + " — bulk domain availability checker")
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  domh              Interactive wizard")
-	fmt.Println("  domh scan [flags] Direct scan")
-	fmt.Println("  domh update       Self-update to latest version")
-	fmt.Println("  domh version      Show version info")
+	fmt.Println("  domh                  Interactive wizard")
+	fmt.Println("  domh scan [flags]     Generate & scan pronounceable domains")
+	fmt.Println("  domh check <file>     Dictionary mode — scan words from file")
+	fmt.Println("  domh tlds [flags]     List available TLDs")
+	fmt.Println("  domh update           Self-update to latest version")
+	fmt.Println("  domh version          Show version info")
 	fmt.Println()
-	fmt.Println("Flags:")
+	fmt.Println("Scan flags:")
 	fmt.Println("  --tld      TLDs (comma-separated)  [default: com]")
 	fmt.Println("  --length   Domain length (3-5)     [default: 3]")
 	fmt.Println("  --pattern  CVC, VCV, CVCV, ALL     [default: ALL]")
 	fmt.Println("  --workers  Concurrent workers      [default: 50]")
 	fmt.Println("  --format   Export: txt,json,csv    [default: txt]")
+	fmt.Println()
+	fmt.Println("Check flags:")
+	fmt.Println("  --tld      TLDs (comma-separated)  [default: com]")
+	fmt.Println("  --workers  Concurrent workers      [default: 50]")
+	fmt.Println("  --format   Export: txt,json,csv    [default: txt]")
+	fmt.Println()
+	fmt.Println("TLDs flags:")
+	fmt.Println("  --rdap     Only TLDs with RDAP support")
+	fmt.Println("  --country  Only country-code TLDs")
+	fmt.Println("  --refresh  Force refresh of TLD cache")
+}
+
+func runCheck(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: domh check <words-file> [--tld com,dev,io]")
+		os.Exit(1)
+	}
+
+	file := args[0]
+	tlds := []string{"com"}
+	workers := 50
+	formats := []export.Format{export.FormatTXT}
+
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--tld":
+			if i+1 < len(args) {
+				tlds = strings.Split(args[i+1], ",")
+				i++
+			}
+		case "--workers":
+			if i+1 < len(args) {
+				w, _ := strconv.Atoi(args[i+1])
+				if w > 0 {
+					workers = w
+				}
+				i++
+			}
+		case "--format":
+			if i+1 < len(args) {
+				formats = nil
+				for _, f := range strings.Split(args[i+1], ",") {
+					formats = append(formats, export.Format(strings.TrimSpace(f)))
+				}
+				i++
+			}
+		}
+	}
+
+	// Read words from file
+	f, err := os.Open(file)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot open file: %v\n", err)
+		os.Exit(1)
+	}
+	defer f.Close()
+
+	var domains []string
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		word := strings.TrimSpace(s.Text())
+		if word == "" || strings.HasPrefix(word, "#") {
+			continue
+		}
+		for _, tld := range tlds {
+			domains = append(domains, fmt.Sprintf("%s.%s", strings.ToLower(word), tld))
+		}
+	}
+
+	if len(domains) == 0 {
+		fmt.Fprintln(os.Stderr, "No words found in file.")
+		os.Exit(1)
+	}
+
+	if !confirmLargeScan(len(domains), workers) {
+		return
+	}
+
+	startScanWithDomains(domains, tlds, workers, formats, "dict")
+}
+
+func runTLDs(args []string) {
+	rdapOnly := false
+	countryOnly := false
+	refresh := false
+
+	for _, arg := range args {
+		switch arg {
+		case "--rdap":
+			rdapOnly = true
+		case "--country":
+			countryOnly = true
+		case "--refresh":
+			refresh = true
+		}
+	}
+
+	if refresh {
+		fmt.Print("Refreshing TLD cache... ")
+		if err := registry.RefreshCache(); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("done.")
+	}
+
+	tlds, err := registry.GetCachedTLDs()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error fetching TLDs: %v\n", err)
+		os.Exit(1)
+	}
+
+	var filtered []registry.TLDInfo
+	for _, t := range tlds {
+		if rdapOnly && t.RDAPUrl == "" {
+			continue
+		}
+		if countryOnly && t.Type != "country-code" {
+			continue
+		}
+		filtered = append(filtered, t)
+	}
+
+	for _, t := range filtered {
+		suffix := ""
+		if t.RDAPUrl != "" {
+			suffix = dimStyle.Render(" (rdap)")
+		}
+		fmt.Printf("  .%-10s %s%s\n", t.Name, dimStyle.Render(t.Type), suffix)
+	}
+	fmt.Printf("\n  Total: %d TLDs\n", len(filtered))
 }
 
 func runUpdate() {
@@ -132,7 +272,18 @@ func runInteractive() {
 		fmt.Fprintf(os.Stderr, "Cancelled.\n")
 		os.Exit(0)
 	}
-	startScan(cfg.TLDs, cfg.Length, cfg.Pattern, cfg.Workers, cfg.Formats)
+
+	domains := scanner.GenerateDomains(cfg.Length, cfg.Pattern, cfg.TLDs)
+	if len(domains) == 0 {
+		fmt.Fprintln(os.Stderr, "No domains generated. Check length/pattern combination.")
+		os.Exit(1)
+	}
+
+	if !confirmLargeScan(len(domains), cfg.Workers) {
+		return
+	}
+
+	startScanWithDomains(domains, cfg.TLDs, cfg.Workers, cfg.Formats, string(cfg.Pattern))
 }
 
 func runCLI(args []string) {
@@ -181,25 +332,68 @@ func runCLI(args []string) {
 		}
 	}
 
-	// Validate TLDs
-	for _, tld := range tlds {
-		if _, ok := scanner.Providers[tld]; !ok {
-			fmt.Fprintf(os.Stderr, "Unsupported TLD: .%s\nSupported: %s\n", tld, strings.Join(scanner.SupportedTLDs, ", "))
-			os.Exit(1)
-		}
-	}
-
-	startScan(tlds, length, pattern, workers, formats)
-}
-
-func startScan(tlds []string, length int, pattern scanner.Pattern, workers int, formats []export.Format) {
 	domains := scanner.GenerateDomains(length, pattern, tlds)
-
 	if len(domains) == 0 {
 		fmt.Fprintln(os.Stderr, "No domains generated. Check length/pattern combination.")
 		os.Exit(1)
 	}
 
+	startScanWithDomains(domains, tlds, workers, formats, string(pattern))
+}
+
+// confirmLargeScan shows a warning for scans > 10000 domains. Returns false if user declines.
+func confirmLargeScan(count, workers int) bool {
+	if count <= 10000 {
+		return true
+	}
+
+	// Only prompt in interactive mode (stdin is a terminal)
+	fi, _ := os.Stdin.Stat()
+	if fi != nil && (fi.Mode()&os.ModeCharDevice) == 0 {
+		return true // piped input, skip prompt
+	}
+
+	rate := float64(workers) * 6 // ~6 domains/s per worker (conservative)
+	if rate > 300 {
+		rate = 300
+	}
+	etaSec := float64(count) / rate
+	eta := time.Duration(etaSec) * time.Second
+
+	fmt.Println()
+	fmt.Println(warnStyle.Render("⚠ Large scan detected"))
+	fmt.Printf("  Domains: %s\n", formatNumber(count))
+	fmt.Printf("  Estimated time: ~%s (at %.0f/s)\n", eta.Round(time.Second), rate)
+	fmt.Printf("  Network requests: ~%s\n", formatNumber(count))
+	fmt.Println()
+	fmt.Print("  Continue? [Y/n] ")
+
+	reader := bufio.NewReader(os.Stdin)
+	answer, _ := reader.ReadString('\n')
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	if answer == "n" || answer == "no" {
+		fmt.Println("  Cancelled.")
+		return false
+	}
+	return true
+}
+
+func formatNumber(n int) string {
+	s := strconv.Itoa(n)
+	if len(s) <= 3 {
+		return s
+	}
+	var result []byte
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			result = append(result, ',')
+		}
+		result = append(result, byte(c))
+	}
+	return string(result)
+}
+
+func startScanWithDomains(domains []string, tlds []string, workers int, formats []export.Format, pattern string) {
 	// Init exporter
 	exp, err := export.New(formats)
 	if err != nil {
@@ -223,8 +417,8 @@ func startScan(tlds []string, length int, pattern scanner.Pattern, workers int, 
 	// Init TUI
 	cfg := tui.Config{
 		TLDs:    tlds,
-		Length:  length,
-		Pattern: string(pattern),
+		Length:  0,
+		Pattern: pattern,
 		Workers: workers,
 	}
 	model := tui.NewModel(sc, cfg)

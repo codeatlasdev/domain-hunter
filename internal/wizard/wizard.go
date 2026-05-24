@@ -3,10 +3,12 @@ package wizard
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/charmbracelet/huh"
 
 	"github.com/codeatlasdev/domain-hunter/internal/export"
+	"github.com/codeatlasdev/domain-hunter/internal/registry"
 	"github.com/codeatlasdev/domain-hunter/internal/scanner"
 )
 
@@ -20,25 +22,51 @@ type Config struct {
 
 func Run() (*Config, error) {
 	var (
-		tlds       []string
-		length     string
-		pattern    string
-		workersStr string
-		formats    []string
+		tldCategory string
+		tlds        []string
+		customTLDs  string
+		length      string
+		pattern     string
+		workersStr  string
+		formats     []string
 	)
+
+	// Count available TLDs
+	totalTLDs := 0
+	cached, _ := registry.GetCachedTLDs()
+	if len(cached) > 0 {
+		totalTLDs = len(cached)
+	}
+
+	totalLabel := ""
+	if totalTLDs > 0 {
+		totalLabel = fmt.Sprintf(" (%d available)", totalTLDs)
+	}
 
 	form := huh.NewForm(
 		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("TLD selection").
+				Description("Which extensions to scan?").
+				Options(
+					huh.NewOption("Popular — com, net, org, dev, io, app, co, xyz", "popular"),
+					huh.NewOption("Country — br, us, uk, de, fr, jp, au, ca", "country"),
+					huh.NewOption("All"+totalLabel, "all"),
+					huh.NewOption("Custom — type manually", "custom"),
+				).
+				Value(&tldCategory),
+		),
+		huh.NewGroup(
 			huh.NewMultiSelect[string]().
 				Title("Select TLDs").
-				Description("Which extensions to scan?").
+				Description("Pick the extensions you want").
 				Options(
 					huh.NewOption(".com", "com").Selected(true),
 					huh.NewOption(".net", "net"),
+					huh.NewOption(".org", "org"),
 					huh.NewOption(".dev", "dev"),
 					huh.NewOption(".io", "io"),
 					huh.NewOption(".app", "app"),
-					huh.NewOption(".org", "org"),
 					huh.NewOption(".co", "co"),
 					huh.NewOption(".xyz", "xyz"),
 				).
@@ -49,7 +77,44 @@ func Run() (*Config, error) {
 					}
 					return nil
 				}),
-		),
+		).WithHideFunc(func() bool { return tldCategory != "popular" }),
+		huh.NewGroup(
+			huh.NewMultiSelect[string]().
+				Title("Select country TLDs").
+				Description("Pick country-code extensions").
+				Options(
+					huh.NewOption(".br (Brazil)", "br").Selected(true),
+					huh.NewOption(".us (United States)", "us"),
+					huh.NewOption(".uk (United Kingdom)", "uk"),
+					huh.NewOption(".de (Germany)", "de"),
+					huh.NewOption(".fr (France)", "fr"),
+					huh.NewOption(".jp (Japan)", "jp"),
+					huh.NewOption(".au (Australia)", "au"),
+					huh.NewOption(".ca (Canada)", "ca"),
+					huh.NewOption(".in (India)", "in"),
+					huh.NewOption(".it (Italy)", "it"),
+				).
+				Value(&tlds).
+				Validate(func(v []string) error {
+					if len(v) == 0 {
+						return fmt.Errorf("select at least one TLD")
+					}
+					return nil
+				}),
+		).WithHideFunc(func() bool { return tldCategory != "country" }),
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Custom TLDs").
+				Description("Comma-separated list (e.g. com,dev,br,xyz)").
+				Placeholder("com,dev,io").
+				Value(&customTLDs).
+				Validate(func(v string) error {
+					if strings.TrimSpace(v) == "" {
+						return fmt.Errorf("enter at least one TLD")
+					}
+					return nil
+				}),
+		).WithHideFunc(func() bool { return tldCategory != "custom" }),
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Domain length").
@@ -102,6 +167,26 @@ func Run() (*Config, error) {
 
 	if err := form.Run(); err != nil {
 		return nil, err
+	}
+
+	// Resolve TLDs based on category
+	switch tldCategory {
+	case "all":
+		tlds = nil
+		for _, t := range cached {
+			tlds = append(tlds, t.Name)
+		}
+		if len(tlds) == 0 {
+			tlds = []string{"com"}
+		}
+	case "custom":
+		tlds = nil
+		for _, t := range strings.Split(customTLDs, ",") {
+			t = strings.TrimSpace(strings.TrimPrefix(t, "."))
+			if t != "" {
+				tlds = append(tlds, strings.ToLower(t))
+			}
+		}
 	}
 
 	workers := 50
