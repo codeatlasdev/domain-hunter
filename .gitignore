@@ -1,10 +1,49 @@
+# Binaries
 domh
+domh-mcp
 domain-hunter
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+web/api/domh-api
+
+# Build output
 dist/
+web/app/dist/
+
+# Test/scan artifacts
 results-*
 results.txt
-*.exe
+names.txt
+*.txt.bak
+
+# Dependencies
+web/app/node_modules/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project internal
 __plans/
 .kiro/
-web/api/domh-api
-names.txt
+
+# Debug
+*.log
+debug/
+cpu.prof
+mem.prof
