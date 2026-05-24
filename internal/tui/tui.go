@@ -200,7 +200,7 @@ func (m *Model) View() string {
 	)
 	b.WriteString(statsLine + "\n\n")
 
-	// Available domains
+	// Available domains (max 8 lines)
 	m.mu.Lock()
 	availDomains := make([]string, len(m.available))
 	copy(availDomains, m.available)
@@ -212,24 +212,24 @@ func (m *Model) View() string {
 		var av strings.Builder
 		av.WriteString(greenBold.Render("● Available") + "\n\n")
 		show := availDomains
-		if len(show) > 15 {
-			show = show[len(show)-15:]
+		if len(show) > 8 {
+			show = show[len(show)-8:]
 		}
 		for _, d := range show {
 			av.WriteString(fmt.Sprintf("  %s %s\n", greenBold.Render("✓"), boldWhite.Render(d)))
 		}
-		if len(availDomains) > 15 {
-			av.WriteString(dimStyle.Render(fmt.Sprintf("\n  + %d more", len(availDomains)-15)))
+		if len(availDomains) > 8 {
+			av.WriteString(dimStyle.Render(fmt.Sprintf("\n  + %d more (see results file)", len(availDomains)-8)))
 		}
 		b.WriteString(availBox.Render(av.String()) + "\n\n")
 	}
 
-	// Activity log
+	// Activity log (max 8 lines)
 	var logContent strings.Builder
 	logContent.WriteString(dimStyle.Bold(true).Render("● Activity") + "\n\n")
 	start := 0
-	if len(logs) > 15 {
-		start = len(logs) - 15
+	if len(logs) > 8 {
+		start = len(logs) - 8
 	}
 	for _, l := range logs[start:] {
 		if strings.Contains(l, "✓") {
