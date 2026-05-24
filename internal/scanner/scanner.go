@@ -15,6 +15,13 @@ import (
 	"github.com/codeatlasdev/domain-hunter/internal/pricing"
 )
 
+type DomainInfo struct {
+	Registrar   string
+	CreatedDate string
+	ExpiryDate  string
+	Status      []string
+}
+
 type Result struct {
 	Domain     string
 	TLD        string
@@ -24,6 +31,7 @@ type Result struct {
 	Signatures []string // all methods that confirmed: "DNS_NS", "DNS_A", "DNS_MX", "RDAP", "WHOIS", "SSL"
 	Timestamp  time.Time
 	Pricing    *pricing.PriceResult
+	Info       *DomainInfo
 }
 
 type Stats struct {

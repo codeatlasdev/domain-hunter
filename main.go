@@ -17,6 +17,7 @@ import (
 	selfupdate "github.com/creativeprojects/go-selfupdate"
 
 	"github.com/codeatlasdev/domain-hunter/internal/export"
+	"github.com/codeatlasdev/domain-hunter/internal/presets"
 	"github.com/codeatlasdev/domain-hunter/internal/registry"
 	"github.com/codeatlasdev/domain-hunter/internal/scanner"
 	"github.com/codeatlasdev/domain-hunter/internal/tui"
@@ -33,6 +34,7 @@ var (
 	greenBold  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#10B981"))
 	dimStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748B"))
 	warnStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F59E0B"))
+	redBold    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#EF4444"))
 )
 
 func main() {
@@ -48,6 +50,8 @@ func main() {
 		runCheck(os.Args[2:])
 	case "tlds":
 		runTLDs(os.Args[2:])
+	case "presets":
+		runPresets()
 	case "update":
 		runUpdate()
 	case "version":
@@ -65,22 +69,32 @@ func printHelp() {
 	fmt.Println(titleStyle.Render("◆ domh") + " — bulk domain availability checker")
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  domh                  Interactive wizard")
-	fmt.Println("  domh scan [flags]     Generate & scan pronounceable domains")
-	fmt.Println("  domh check <file>     Dictionary mode — scan words from file")
-	fmt.Println("  domh tlds [flags]     List available TLDs")
-	fmt.Println("  domh update           Self-update to latest version")
-	fmt.Println("  domh version          Show version info")
+	fmt.Println("  domh                       Interactive wizard")
+	fmt.Println("  domh scan [name] [flags]   Scan domains")
+	fmt.Println("  domh check <file> [flags]  Dictionary mode")
+	fmt.Println("  domh tlds [flags]          List TLDs")
+	fmt.Println("  domh presets               List presets")
+	fmt.Println("  domh update                Self-update")
+	fmt.Println("  domh version               Version info")
 	fmt.Println()
 	fmt.Println("Scan flags:")
-	fmt.Println("  --tld              TLDs (comma-separated)       [default: com]")
-	fmt.Println("  --length           Domain length (3-5)          [default: 3]")
-	fmt.Println("  --pattern          CVC, VCV, CVCV, ALL          [default: ALL]")
-	fmt.Println("  --workers          Concurrent workers           [default: 50]")
-	fmt.Println("  --format           Export: txt,json,csv         [default: txt]")
-	fmt.Println("  --regex, -r        Regex filter for domain prefix")
-	fmt.Println("  --delay            Delay between queries (ms)   [default: 0]")
-	fmt.Println("  --show-registered  Also save registered domains to file")
+	fmt.Println("  --tld          TLDs (comma-separated)       [default: com]")
+	fmt.Println("  --preset       Use preset TLD set (startup, tech, etc)")
+	fmt.Println("  --all          Check ALL 1437 TLDs")
+	fmt.Println("  --length       Domain length (3-5)          [default: 3]")
+	fmt.Println("  --pattern      CVC, VCV, CVCV, ALL          [default: ALL]")
+	fmt.Println("  --prefix       Prefixes (comma-separated)")
+	fmt.Println("  --suffix       Suffixes (comma-separated)")
+	fmt.Println("  --workers      Concurrent workers           [default: 50]")
+	fmt.Println("  --format       Export: txt,json,csv         [default: txt]")
+	fmt.Println("  --regex, -r    Regex filter")
+	fmt.Println("  --delay        Delay between queries (ms)   [default: 0]")
+	fmt.Println("  --info         Show registrar info for taken domains")
+	fmt.Println("  --show-registered  Save registered domains")
+	fmt.Println("  --dry-run      Preview domains without checking")
+	fmt.Println("  --yes, -y      Skip confirmations")
+	fmt.Println("  --force        Skip performance warnings")
+	fmt.Println("  --batch        Plain output (no TUI, CI-friendly)")
 	fmt.Println()
 	fmt.Println("Check flags:")
 	fmt.Println("  --tld              TLDs (comma-separated)       [default: com]")
@@ -94,6 +108,22 @@ func printHelp() {
 	fmt.Println("  --rdap     Only TLDs with RDAP support")
 	fmt.Println("  --country  Only country-code TLDs")
 	fmt.Println("  --refresh  Force refresh of TLD cache")
+}
+
+func runPresets() {
+	fmt.Println(titleStyle.Render("◆ domh presets"))
+	fmt.Println()
+	// Sort keys for stable output
+	keys := make([]string, 0, len(presets.Presets))
+	for k := range presets.Presets {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, name := range keys {
+		tlds := presets.Presets[name]
+		fmt.Printf("  %-12s %s\n", name, dimStyle.Render(strings.Join(tlds, ", ")))
+	}
+	fmt.Println()
 }
 
 func runCheck(args []string) {
@@ -151,7 +181,6 @@ func runCheck(args []string) {
 		}
 	}
 
-	// Read words from file
 	f, err := os.Open(file)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Cannot open file: %v\n", err)
@@ -178,12 +207,12 @@ func runCheck(args []string) {
 
 	domains = applyRegexFilter(domains, regexFilter)
 
-	if !confirmLargeScan(len(domains), workers) {
+	if !confirmLargeScan(len(domains), workers, false, false) {
 		return
 	}
 
 	delay := time.Duration(delayMs) * time.Millisecond
-	startScanWithDomains(domains, tlds, workers, formats, "dict", delay, showRegistered)
+	startScanWithDomains(domains, tlds, workers, formats, "dict", delay, showRegistered, false, false)
 }
 
 func runTLDs(args []string) {
@@ -307,15 +336,16 @@ func runInteractive() {
 		os.Exit(1)
 	}
 
-	if !confirmLargeScan(len(domains), cfg.Workers) {
+	if !confirmLargeScan(len(domains), cfg.Workers, false, false) {
 		return
 	}
 
-	startScanWithDomains(domains, cfg.TLDs, cfg.Workers, cfg.Formats, string(cfg.Pattern), 0, false)
+	startScanWithDomains(domains, cfg.TLDs, cfg.Workers, cfg.Formats, string(cfg.Pattern), 0, false, false, false)
 }
 
 func runCLI(args []string) {
 	tlds := []string{"com"}
+	tldSet := false
 	length := 3
 	pattern := scanner.PatternAll
 	workers := 50
@@ -323,14 +353,33 @@ func runCLI(args []string) {
 	regexFilter := ""
 	delayMs := 0
 	showRegistered := false
+	presetName := ""
+	allTLDs := false
+	prefixes := []string{}
+	suffixes := []string{}
+	info := false
+	dryRun := false
+	yes := false
+	force := false
+	batch := false
+	baseName := ""
 
+	// Parse args — collect positional (base name) and flags
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--tld":
 			if i+1 < len(args) {
 				tlds = strings.Split(args[i+1], ",")
+				tldSet = true
 				i++
 			}
+		case "--preset":
+			if i+1 < len(args) {
+				presetName = args[i+1]
+				i++
+			}
+		case "--all":
+			allTLDs = true
 		case "--length":
 			if i+1 < len(args) {
 				l, _ := strconv.Atoi(args[i+1])
@@ -342,6 +391,16 @@ func runCLI(args []string) {
 		case "--pattern":
 			if i+1 < len(args) {
 				pattern = scanner.Pattern(strings.ToUpper(args[i+1]))
+				i++
+			}
+		case "--prefix":
+			if i+1 < len(args) {
+				prefixes = strings.Split(args[i+1], ",")
+				i++
+			}
+		case "--suffix":
+			if i+1 < len(args) {
+				suffixes = strings.Split(args[i+1], ",")
 				i++
 			}
 		case "--workers":
@@ -373,12 +432,84 @@ func runCLI(args []string) {
 				}
 				i++
 			}
+		case "--info":
+			info = true
 		case "--show-registered":
 			showRegistered = true
+		case "--dry-run":
+			dryRun = true
+		case "--yes", "-y":
+			yes = true
+		case "--force":
+			force = true
+		case "--batch":
+			batch = true
+		default:
+			if !strings.HasPrefix(args[i], "-") && baseName == "" {
+				baseName = args[i]
+			}
 		}
 	}
 
-	domains := scanner.GenerateDomains(length, pattern, tlds)
+	// Auto-detect non-TTY → batch mode
+	if !batch {
+		if fi, _ := os.Stdout.Stat(); fi != nil && (fi.Mode()&os.ModeCharDevice) == 0 {
+			batch = true
+		}
+	}
+
+	// Resolve TLDs: --all > --preset > --tld
+	if allTLDs {
+		cached, err := registry.GetCachedTLDs()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error fetching TLDs: %v\n", err)
+			os.Exit(1)
+		}
+		tlds = make([]string, 0, len(cached))
+		for _, t := range cached {
+			tlds = append(tlds, t.Name)
+		}
+	} else if presetName != "" {
+		p, ok := presets.Get(presetName)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "Unknown preset: %s\nRun 'domh presets' to see available presets.\n", presetName)
+			os.Exit(1)
+		}
+		tlds = p
+	} else if !tldSet {
+		tlds = []string{"com"}
+	}
+
+	// Generate domains
+	var domains []string
+
+	if baseName != "" && (len(prefixes) > 0 || len(suffixes) > 0) {
+		// Prefix/suffix combo mode
+		var names []string
+		for _, p := range prefixes {
+			names = append(names, p+baseName)
+		}
+		for _, s := range suffixes {
+			names = append(names, baseName+s)
+		}
+		if len(names) == 0 {
+			names = []string{baseName}
+		}
+		for _, tld := range tlds {
+			for _, name := range names {
+				domains = append(domains, fmt.Sprintf("%s.%s", name, tld))
+			}
+		}
+	} else if baseName != "" {
+		// Simple base name mode (no pattern generation)
+		for _, tld := range tlds {
+			domains = append(domains, fmt.Sprintf("%s.%s", baseName, tld))
+		}
+	} else {
+		// Pattern generation mode
+		domains = scanner.GenerateDomains(length, pattern, tlds)
+	}
+
 	if len(domains) == 0 {
 		fmt.Fprintln(os.Stderr, "No domains generated. Check length/pattern combination.")
 		os.Exit(1)
@@ -386,8 +517,62 @@ func runCLI(args []string) {
 
 	domains = applyRegexFilter(domains, regexFilter)
 
+	// Dry run
+	if dryRun {
+		fmt.Printf("Dry run — %d domains would be checked:\n", len(domains))
+		for _, d := range domains {
+			fmt.Printf("  %s\n", d)
+		}
+		return
+	}
+
+	// Performance warning
+	if !force && !confirmLargeScan(len(domains), workers, yes, force) {
+		return
+	}
+
 	delay := time.Duration(delayMs) * time.Millisecond
-	startScanWithDomains(domains, tlds, workers, formats, string(pattern), delay, showRegistered)
+
+	if batch {
+		startBatchScan(domains, tlds, workers, formats, delay, showRegistered, info)
+	} else {
+		startScanWithDomains(domains, tlds, workers, formats, string(pattern), delay, showRegistered, info, false)
+	}
+}
+
+func startBatchScan(domains []string, tlds []string, workers int, formats []export.Format, delay time.Duration, showRegistered bool, info bool) {
+	exp, err := export.NewWithOptions(formats, showRegistered)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Export error: %v\n", err)
+		os.Exit(1)
+	}
+	defer exp.Close()
+
+	sc := scanner.NewWithDelay(workers, delay)
+
+	sc.OnResult = func(r scanner.Result) {
+		exp.Append(r)
+
+		status := "TAKEN"
+		if r.Available {
+			status = "AVAILABLE"
+		} else if r.Error {
+			status = "ERROR"
+		}
+		fmt.Printf("%s %s\n", status, r.Domain)
+
+		if info && !r.Available && !r.Error {
+			parts := strings.SplitN(r.Domain, ".", 2)
+			if len(parts) == 2 {
+				if di := scanner.FetchDomainInfo(r.Domain, parts[1]); di != nil {
+					fmt.Printf("  Registrar: %s  Created: %s  Expires: %s\n", di.Registrar, di.CreatedDate, di.ExpiryDate)
+				}
+			}
+		}
+	}
+
+	sc.Run(domains)
+	<-sc.Done
 }
 
 func applyRegexFilter(domains []string, regexFilter string) []string {
@@ -405,19 +590,22 @@ func applyRegexFilter(domains []string, regexFilter string) []string {
 	return filtered
 }
 
-// confirmLargeScan shows a warning for scans > 10000 domains. Returns false if user declines.
-func confirmLargeScan(count, workers int) bool {
-	if count <= 10000 {
+func confirmLargeScan(count, workers int, yes, force bool) bool {
+	if force || count <= 10000 {
 		return true
 	}
 
-	// Only prompt in interactive mode (stdin is a terminal)
-	fi, _ := os.Stdin.Stat()
-	if fi != nil && (fi.Mode()&os.ModeCharDevice) == 0 {
-		return true // piped input, skip prompt
+	if yes {
+		return true
 	}
 
-	rate := float64(workers) * 6 // ~6 domains/s per worker (conservative)
+	// Non-interactive: skip prompt
+	fi, _ := os.Stdin.Stat()
+	if fi != nil && (fi.Mode()&os.ModeCharDevice) == 0 {
+		return true
+	}
+
+	rate := float64(workers) * 6
 	if rate > 300 {
 		rate = 300
 	}
@@ -457,8 +645,7 @@ func formatNumber(n int) string {
 	return string(result)
 }
 
-func startScanWithDomains(domains []string, tlds []string, workers int, formats []export.Format, pattern string, delay time.Duration, showRegistered bool) {
-	// Init exporter
+func startScanWithDomains(domains []string, tlds []string, workers int, formats []export.Format, pattern string, delay time.Duration, showRegistered bool, info bool, _ bool) {
 	exp, err := export.NewWithOptions(formats, showRegistered)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Export error: %v\n", err)
@@ -466,10 +653,8 @@ func startScanWithDomains(domains []string, tlds []string, workers int, formats 
 	}
 	defer exp.Close()
 
-	// Init scanner
 	sc := scanner.NewWithDelay(workers, delay)
 
-	// Wire export to scanner results
 	originalOnResult := sc.OnResult
 	sc.OnResult = func(r scanner.Result) {
 		exp.Append(r)
@@ -478,7 +663,6 @@ func startScanWithDomains(domains []string, tlds []string, workers int, formats 
 		}
 	}
 
-	// Init TUI
 	cfg := tui.Config{
 		TLDs:    tlds,
 		Length:  0,
@@ -487,10 +671,8 @@ func startScanWithDomains(domains []string, tlds []string, workers int, formats 
 	}
 	model := tui.NewModel(sc, cfg)
 
-	// Start scan
 	sc.Run(domains)
 
-	// Run TUI (blocks until done or quit)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
@@ -525,11 +707,10 @@ func startScanWithDomains(domains []string, tlds []string, workers int, formats 
 		fmt.Println()
 		for _, d := range available {
 			fmt.Printf("    %s %s\n", greenBold.Render("✓"), greenBold.Render(d))
-			// Show all prices for this domain
 			for _, r := range results {
 				if r.Domain == d && r.Pricing != nil && len(r.Pricing.Prices) > 0 {
 					for i, p := range r.Pricing.Prices {
-						if i >= 5 { // top 5
+						if i >= 5 {
 							break
 						}
 						marker := "  "
@@ -546,6 +727,30 @@ func startScanWithDomains(domains []string, tlds []string, workers int, formats 
 					break
 				}
 			}
+		}
+	}
+
+	// Show info for taken domains if --info
+	if info {
+		var taken []scanner.Result
+		for _, r := range results {
+			if !r.Available && !r.Error {
+				taken = append(taken, r)
+			}
+		}
+		if len(taken) > 0 {
+			fmt.Println(redBold.Render("  Taken domains:"))
+			fmt.Println()
+			for _, r := range taken {
+				fmt.Printf("    %s %s\n", redBold.Render("✗"), r.Domain)
+				parts := strings.SplitN(r.Domain, ".", 2)
+				if len(parts) == 2 {
+					if di := scanner.FetchDomainInfo(r.Domain, parts[1]); di != nil {
+						fmt.Printf("      Registrar: %s  Created: %s  Expires: %s\n", di.Registrar, di.CreatedDate, di.ExpiryDate)
+					}
+				}
+			}
+			fmt.Println()
 		}
 	}
 
