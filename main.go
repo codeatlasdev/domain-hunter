@@ -522,18 +522,31 @@ func startScanWithDomains(domains []string, tlds []string, workers int, formats 
 
 	if len(available) > 0 {
 		fmt.Println(greenBold.Render("  Available domains:"))
+		fmt.Println()
 		for _, d := range available {
-			// Find pricing from results
-			priceStr := ""
+			fmt.Printf("    %s %s\n", greenBold.Render("✓"), greenBold.Render(d))
+			// Show all prices for this domain
 			for _, r := range results {
-				if r.Domain == d && r.Pricing != nil && r.Pricing.Cheapest != nil {
-					priceStr = dimStyle.Render(fmt.Sprintf("  $%.2f (%s)", r.Pricing.Cheapest.RegisterPrice, r.Pricing.Cheapest.Registrar))
+				if r.Domain == d && r.Pricing != nil && len(r.Pricing.Prices) > 0 {
+					for i, p := range r.Pricing.Prices {
+						if i >= 5 { // top 5
+							break
+						}
+						marker := "  "
+						if i == 0 {
+							marker = "→ "
+						}
+						fmt.Printf("      %s%-12s $%.2f", marker, p.Registrar, p.RegisterPrice)
+						if p.BuyURL != "" {
+							fmt.Printf("  %s", dimStyle.Render(p.BuyURL))
+						}
+						fmt.Println()
+					}
+					fmt.Println()
 					break
 				}
 			}
-			fmt.Printf("    ✓ %s%s\n", d, priceStr)
 		}
-		fmt.Println()
 	}
 
 	fmt.Println(dimStyle.Render(fmt.Sprintf("  Saved to: %s", strings.Join(exp.Filenames(), ", "))))
