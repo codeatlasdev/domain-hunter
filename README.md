@@ -162,28 +162,30 @@ Scan flags:
 
 ## How It Works
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    domh scan                             │
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│  1. Generate    CVC/CVCV patterns or dictionary         │
-│       ↓                                                 │
-│  2. DNS Check   16 resolvers in round-robin (~15ms)     │
-│       ↓         NS → A → MX records                    │
-│       ↓                                                 │
-│  3. RDAP        Confirm candidates (~500ms)             │
-│       ↓         404 = available, 200 = taken            │
-│       ↓                                                 │
-│  4. WHOIS       Fallback for TLDs without RDAP          │
-│       ↓                                                 │
-│  5. SSL         Last resort verification                │
-│       ↓                                                 │
-│  6. Pricing     19 registrars, cheapest first           │
-│       ↓                                                 │
-│  7. Export      Real-time txt/json/csv + TUI            │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A[domh scan] --> B[Generate Names]
+    B --> |CVC/CVCV/Dictionary/Prefix+Suffix| C[DNS Check]
+    C --> |16 resolvers · ~15ms| D{Has NS/A/MX?}
+    D --> |Yes| TAKEN[Taken]
+    D --> |NXDOMAIN| E[RDAP Confirm]
+    E --> |404| F[Available ✓]
+    E --> |200| TAKEN
+    E --> |Error| G[WHOIS Fallback]
+    G --> |3 servers| H{Found?}
+    H --> |Available| F
+    H --> |Registered| TAKEN
+    H --> |Unknown| I[SSL Check]
+    I --> |Has cert| TAKEN
+    I --> |No cert| F
+    F --> J[Price Compare]
+    J --> |19 registrars| K[Export + TUI]
+
+    style A fill:#2563EB,color:#fff,stroke:none
+    style F fill:#10B981,color:#fff,stroke:none
+    style TAKEN fill:#64748B,color:#fff,stroke:none
+    style J fill:#F59E0B,color:#fff,stroke:none
+    style K fill:#06B6D4,color:#fff,stroke:none
 ```
 
 ---
