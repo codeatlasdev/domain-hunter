@@ -6,3 +6,5 @@ results.txt
 *.exe
 __plans/
 .kiro/
+web/api/domh-api
+names.txt

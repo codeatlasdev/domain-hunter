@@ -21,7 +21,7 @@ if [ -z "$LATEST" ]; then
   exit 1
 fi
 
-URL="https://github.com/$REPO/releases/download/$LATEST/${BINARY}_${OS}_${ARCH}.tar.gz"
+URL="https://github.com/$REPO/releases/download/$LATEST/domain-hunter_${OS}_${ARCH}.tar.gz"
 
 echo "◆ domh installer"
 echo "  Version: $LATEST"
