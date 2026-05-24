@@ -15,21 +15,21 @@ import (
 )
 
 var (
-	blue     = lipgloss.Color("#2563EB")
-	green    = lipgloss.Color("#10B981")
-	red      = lipgloss.Color("#EF4444")
-	amber    = lipgloss.Color("#F59E0B")
-	cyan     = lipgloss.Color("#06B6D4")
-	slate500 = lipgloss.Color("#64748B")
-	white    = lipgloss.Color("#F8FAFC")
-
-	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(blue)
-	dimStyle   = lipgloss.NewStyle().Foreground(slate500)
-	boldWhite  = lipgloss.NewStyle().Bold(true).Foreground(white)
-	greenBold  = lipgloss.NewStyle().Bold(true).Foreground(green)
-	redStyle   = lipgloss.NewStyle().Foreground(red)
-	amberStyle = lipgloss.NewStyle().Foreground(amber)
-	cyanStyle  = lipgloss.NewStyle().Foreground(cyan)
+	blue      = lipgloss.Color("#2563EB")
+	blueLight = lipgloss.Color("#60A5FA")
+	green     = lipgloss.Color("#10B981")
+	red       = lipgloss.Color("#EF4444")
+	amber     = lipgloss.Color("#F59E0B")
+	cyan      = lipgloss.Color("#06B6D4")
+	purple    = lipgloss.Color("#A78BFA")
+	slate300  = lipgloss.Color("#CBD5E1")
+	slate400  = lipgloss.Color("#94A3B8")
+	slate500  = lipgloss.Color("#64748B")
+	slate600  = lipgloss.Color("#475569")
+	slate700  = lipgloss.Color("#334155")
+	slate800  = lipgloss.Color("#1E293B")
+	slate900  = lipgloss.Color("#0F172A")
+	white     = lipgloss.Color("#F8FAFC")
 )
 
 type availDomain struct {
@@ -61,15 +61,15 @@ type doneMsg struct{}
 
 func NewModel(sc *scanner.Scanner, cfg Config) *Model {
 	s := spinner.New()
-	s.Spinner = spinner.MiniDot
-	s.Style = lipgloss.NewStyle().Foreground(blue)
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(blueLight)
 
 	m := &Model{
 		spinner: s,
 		scanner: sc,
 		config:  cfg,
-		width:   80,
-		height:  24,
+		width:   100,
+		height:  30,
 	}
 
 	sc.OnResult = func(r scanner.Result) {
@@ -81,12 +81,12 @@ func NewModel(sc *scanner.Scanner, cfg Config) *Model {
 			m.available = append(m.available, availDomain{Domain: r.Domain, Pricing: &pr})
 			m.logs = append(m.logs, fmt.Sprintf("[%s] ✓ %s", ts, r.Domain))
 		} else if r.Error {
-			m.logs = append(m.logs, fmt.Sprintf("[%s] ⚠ %s (error)", ts, r.Domain))
+			m.logs = append(m.logs, fmt.Sprintf("[%s] ⚠ %s", ts, r.Domain))
 		} else {
-			m.logs = append(m.logs, fmt.Sprintf("[%s]   %s", ts, r.Domain))
+			m.logs = append(m.logs, fmt.Sprintf("[%s] · %s", ts, r.Domain))
 		}
-		if len(m.logs) > 300 {
-			m.logs = m.logs[len(m.logs)-300:]
+		if len(m.logs) > 500 {
+			m.logs = m.logs[len(m.logs)-500:]
 		}
 	}
 
@@ -98,7 +98,7 @@ func (m *Model) Init() tea.Cmd {
 }
 
 func doTick() tea.Cmd {
-	return tea.Tick(150*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
+	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
 func waitDone(ch chan struct{}) tea.Cmd {
@@ -133,41 +133,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) View() string {
-	stats := m.scanner.Stats()
 	w := m.width
-	if w < 40 {
-		w = 40
+	h := m.height
+	if w < 50 {
+		w = 50
+	}
+	if h < 15 {
+		h = 15
 	}
 
-	// Calculate how many lines we can use for available + logs
-	// Header(3) + progress(3) + stats(2) + footer(1) + borders(~6) = ~15 fixed lines
-	availableLines := (m.height - 15) / 2
-	if availableLines < 3 {
-		availableLines = 3
-	}
-	if availableLines > 12 {
-		availableLines = 12
-	}
-	logLines := availableLines
-
-	contentWidth := w - 4 // padding for borders
-
-	var b strings.Builder
-
-	// Header
-	tldStr := strings.Join(m.config.TLDs, ",.")
-	headerContent := titleStyle.Render("◆ domh") + "  " +
-		dimStyle.Render(fmt.Sprintf("%d-letter .%s • %s • %d workers",
-			m.config.Length, tldStr, m.config.Pattern, m.config.Workers))
-	header := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(blue).
-		Padding(0, 1).
-		Width(contentWidth).
-		Render(headerContent)
-	b.WriteString(header + "\n\n")
-
-	// Progress
+	stats := m.scanner.Stats()
 	checked := int(stats.Checked)
 	total := stats.Total
 	elapsed := time.Since(stats.StartTime)
@@ -179,129 +154,180 @@ func (m *Model) View() string {
 	if elapsed.Seconds() > 0 {
 		rate = float64(checked) / elapsed.Seconds()
 	}
-	eta := "─"
+	eta := "—"
 	if rate > 0 && checked < total {
 		remaining := float64(total-checked) / rate
 		eta = (time.Duration(remaining) * time.Second).Round(time.Second).String()
 	}
 
-	// Responsive bar width
-	barW := contentWidth - 20 // space for spinner + count + pct
-	if barW < 10 {
-		barW = 10
-	}
-	if barW > 60 {
-		barW = 60
-	}
-	filled := (pct * barW) / 100
-	bar := lipgloss.NewStyle().Foreground(blue).Render(strings.Repeat("━", filled)) +
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#334155")).Render(strings.Repeat("─", barW-filled))
-
-	b.WriteString(fmt.Sprintf("  %s %s %s %s\n\n",
-		m.spinner.View(),
-		boldWhite.Render(fmt.Sprintf("%d/%d", checked, total)),
-		bar,
-		dimStyle.Render(fmt.Sprintf("%d%%", pct)),
-	))
-
-	// Stats row - responsive
-	m.mu.Lock()
-	avail := len(m.available)
-	m.mu.Unlock()
-	errors := int(stats.Errors)
-	taken := checked - avail - errors
-
-	if w > 90 {
-		// Wide: all stats on one line
-		b.WriteString(fmt.Sprintf("  %s %s  %s %s  %s %s  %s %s  %s %s  %s %s\n\n",
-			dimStyle.Render("available"), greenBold.Render(fmt.Sprintf("%d", avail)),
-			dimStyle.Render("taken"), boldWhite.Render(fmt.Sprintf("%d", taken)),
-			dimStyle.Render("errors"), redStyle.Render(fmt.Sprintf("%d", errors)),
-			dimStyle.Render("rate"), amberStyle.Render(fmt.Sprintf("%.0f/s", rate)),
-			dimStyle.Render("elapsed"), cyanStyle.Render(elapsed.Round(time.Second).String()),
-			dimStyle.Render("eta"), boldWhite.Render(eta),
-		))
-	} else {
-		// Narrow: two lines
-		b.WriteString(fmt.Sprintf("  %s %s  %s %s  %s %s\n",
-			dimStyle.Render("available"), greenBold.Render(fmt.Sprintf("%d", avail)),
-			dimStyle.Render("taken"), boldWhite.Render(fmt.Sprintf("%d", taken)),
-			dimStyle.Render("errors"), redStyle.Render(fmt.Sprintf("%d", errors)),
-		))
-		b.WriteString(fmt.Sprintf("  %s %s  %s %s  %s %s\n\n",
-			dimStyle.Render("rate"), amberStyle.Render(fmt.Sprintf("%.0f/s", rate)),
-			dimStyle.Render("elapsed"), cyanStyle.Render(elapsed.Round(time.Second).String()),
-			dimStyle.Render("eta"), boldWhite.Render(eta),
-		))
-	}
-
-	// Available domains
 	m.mu.Lock()
 	availDomains := make([]availDomain, len(m.available))
 	copy(availDomains, m.available)
 	logs := make([]string, len(m.logs))
 	copy(logs, m.logs)
+	avail := len(m.available)
 	m.mu.Unlock()
 
-	if len(availDomains) > 0 {
-		var av strings.Builder
-		av.WriteString(greenBold.Render("● Available") + "\n\n")
-		show := availDomains
-		if len(show) > availableLines {
-			show = show[len(show)-availableLines:]
-		}
-		for _, d := range show {
-			priceStr := ""
-			if d.Pricing != nil && d.Pricing.Cheapest != nil {
-				priceStr = dimStyle.Render(fmt.Sprintf("  $%.2f (%s)", d.Pricing.Cheapest.RegisterPrice, d.Pricing.Cheapest.Registrar))
-			}
-			line := fmt.Sprintf("  %s %s%s", greenBold.Render("✓"), boldWhite.Render(d.Domain), priceStr)
-			// Truncate if too wide
-			if lipgloss.Width(line) > contentWidth-2 {
-				line = fmt.Sprintf("  %s %s", greenBold.Render("✓"), boldWhite.Render(d.Domain))
-			}
-			av.WriteString(line + "\n")
-		}
-		if len(availDomains) > availableLines {
-			av.WriteString(dimStyle.Render(fmt.Sprintf("\n  + %d more (see results file)", len(availDomains)-availableLines)))
-		}
-		availBoxStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(green).
-			Padding(0, 1).
-			Width(contentWidth)
-		b.WriteString(availBoxStyle.Render(av.String()) + "\n\n")
+	errors := int(stats.Errors)
+	taken := checked - avail - errors
+
+	// ─── HEADER BAR ─────────────────────────────────────────────────────
+	brand := lipgloss.NewStyle().Bold(true).Foreground(blueLight).Render("◆ domh")
+	info := lipgloss.NewStyle().Foreground(slate400).Render(
+		fmt.Sprintf("%d-letter .%s · %s · %d workers",
+			m.config.Length, strings.Join(m.config.TLDs, ",."), m.config.Pattern, m.config.Workers))
+	headerLeft := brand + "  " + info
+	headerRight := lipgloss.NewStyle().Foreground(slate500).Render("q quit")
+	headerGap := w - lipgloss.Width(headerLeft) - lipgloss.Width(headerRight) - 2
+	if headerGap < 1 {
+		headerGap = 1
+	}
+	header := " " + headerLeft + strings.Repeat(" ", headerGap) + headerRight + " "
+
+	// ─── PROGRESS BAR ───────────────────────────────────────────────────
+	barW := w - 30
+	if barW < 15 {
+		barW = 15
+	}
+	filled := (pct * barW) / 100
+	barFilled := lipgloss.NewStyle().Foreground(blue).Bold(true).Render(strings.Repeat("█", filled))
+	barEmpty := lipgloss.NewStyle().Foreground(slate700).Render(strings.Repeat("░", barW-filled))
+	progressLeft := fmt.Sprintf(" %s %s",
+		m.spinner.View(),
+		lipgloss.NewStyle().Bold(true).Foreground(white).Render(fmt.Sprintf("%d/%d", checked, total)))
+	progressRight := lipgloss.NewStyle().Foreground(blueLight).Bold(true).Render(fmt.Sprintf(" %d%%", pct))
+	progress := progressLeft + " " + barFilled + barEmpty + progressRight
+
+	// ─── STATS ROW ──────────────────────────────────────────────────────
+	statsItems := []string{
+		lipgloss.NewStyle().Foreground(green).Bold(true).Render(fmt.Sprintf("● %d available", avail)),
+		lipgloss.NewStyle().Foreground(slate400).Render(fmt.Sprintf("○ %d taken", taken)),
+		lipgloss.NewStyle().Foreground(amber).Render(fmt.Sprintf("⚠ %d errors", errors)),
+		lipgloss.NewStyle().Foreground(cyan).Render(fmt.Sprintf("⚡ %.0f/s", rate)),
+		lipgloss.NewStyle().Foreground(purple).Render(fmt.Sprintf("⏱ %s", elapsed.Round(time.Second))),
+		lipgloss.NewStyle().Foreground(slate300).Render(fmt.Sprintf("→ %s", eta)),
+	}
+	statsRow := " " + strings.Join(statsItems, "  ")
+
+	// ─── SEPARATOR ──────────────────────────────────────────────────────
+	sep := lipgloss.NewStyle().Foreground(slate700).Render(strings.Repeat("─", w))
+
+	// ─── PANELS (split layout) ──────────────────────────────────────────
+	panelHeight := h - 7 // header + progress + stats + sep + footer
+	if panelHeight < 5 {
+		panelHeight = 5
 	}
 
-	// Activity log
-	var logContent strings.Builder
-	logContent.WriteString(dimStyle.Bold(true).Render("● Activity") + "\n\n")
-	start := 0
-	if len(logs) > logLines {
-		start = len(logs) - logLines
+	leftW := w / 2
+	rightW := w - leftW - 1 // -1 for separator
+
+	// Left panel: Available domains
+	leftContent := m.renderAvailable(availDomains, leftW-4, panelHeight-3)
+	leftPanel := lipgloss.NewStyle().
+		Width(leftW).
+		Height(panelHeight).
+		BorderRight(true).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(slate700).
+		Padding(0, 1).
+		Render(leftContent)
+
+	// Right panel: Activity log
+	rightContent := m.renderLog(logs, rightW-4, panelHeight-3)
+	rightPanel := lipgloss.NewStyle().
+		Width(rightW).
+		Height(panelHeight).
+		Padding(0, 1).
+		Render(rightContent)
+
+	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
+
+	// ─── FOOTER ─────────────────────────────────────────────────────────
+	footerLeft := lipgloss.NewStyle().Foreground(slate500).Render(" results auto-saved")
+	footerRight := lipgloss.NewStyle().Foreground(slate600).Render("domh v1.4.0 ")
+	footerGap := w - lipgloss.Width(footerLeft) - lipgloss.Width(footerRight)
+	if footerGap < 1 {
+		footerGap = 1
 	}
+	footer := footerLeft + strings.Repeat(" ", footerGap) + footerRight
+
+	// ─── COMPOSE ────────────────────────────────────────────────────────
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		progress,
+		statsRow,
+		sep,
+		panels,
+		sep,
+		footer,
+	)
+}
+
+func (m *Model) renderAvailable(domains []availDomain, maxW, maxLines int) string {
+	var b strings.Builder
+	title := lipgloss.NewStyle().Bold(true).Foreground(green).Render("✓ Available")
+	count := lipgloss.NewStyle().Foreground(slate400).Render(fmt.Sprintf(" (%d)", len(domains)))
+	b.WriteString(title + count + "\n\n")
+
+	if len(domains) == 0 {
+		b.WriteString(lipgloss.NewStyle().Foreground(slate500).Italic(true).Render("  scanning..."))
+		return b.String()
+	}
+
+	show := domains
+	if len(show) > maxLines-2 {
+		show = show[len(show)-(maxLines-2):]
+	}
+
+	for _, d := range show {
+		domain := lipgloss.NewStyle().Bold(true).Foreground(white).Render(d.Domain)
+		price := ""
+		if d.Pricing != nil && d.Pricing.Cheapest != nil {
+			price = lipgloss.NewStyle().Foreground(slate400).Render(
+				fmt.Sprintf(" $%.0f %s", d.Pricing.Cheapest.RegisterPrice, d.Pricing.Cheapest.Registrar))
+		}
+		line := "  " + domain + price
+		if lipgloss.Width(line) > maxW {
+			line = "  " + domain
+		}
+		b.WriteString(line + "\n")
+	}
+
+	if len(domains) > maxLines-2 {
+		b.WriteString(lipgloss.NewStyle().Foreground(slate500).Render(
+			fmt.Sprintf("\n  + %d more", len(domains)-(maxLines-2))))
+	}
+
+	return b.String()
+}
+
+func (m *Model) renderLog(logs []string, maxW, maxLines int) string {
+	var b strings.Builder
+	title := lipgloss.NewStyle().Bold(true).Foreground(slate400).Render("◌ Activity")
+	b.WriteString(title + "\n\n")
+
+	if len(logs) == 0 {
+		b.WriteString(lipgloss.NewStyle().Foreground(slate500).Italic(true).Render("  waiting..."))
+		return b.String()
+	}
+
+	start := 0
+	if len(logs) > maxLines-2 {
+		start = len(logs) - (maxLines - 2)
+	}
+
 	for _, l := range logs[start:] {
-		// Truncate long lines
-		if len(l) > contentWidth-4 {
-			l = l[:contentWidth-7] + "..."
+		if len(l) > maxW {
+			l = l[:maxW-3] + "..."
 		}
 		if strings.Contains(l, "✓") {
-			logContent.WriteString("  " + greenBold.Render(l) + "\n")
+			b.WriteString("  " + lipgloss.NewStyle().Foreground(green).Render(l) + "\n")
 		} else if strings.Contains(l, "⚠") {
-			logContent.WriteString("  " + amberStyle.Render(l) + "\n")
+			b.WriteString("  " + lipgloss.NewStyle().Foreground(amber).Render(l) + "\n")
 		} else {
-			logContent.WriteString("  " + dimStyle.Render(l) + "\n")
+			b.WriteString("  " + lipgloss.NewStyle().Foreground(slate600).Render(l) + "\n")
 		}
 	}
-	logBoxStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#334155")).
-		Padding(0, 1).
-		Width(contentWidth)
-	b.WriteString(logBoxStyle.Render(logContent.String()) + "\n\n")
-
-	// Footer
-	b.WriteString(dimStyle.Render("  q quit • results saved in real-time"))
 
 	return b.String()
 }
