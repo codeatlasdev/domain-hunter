@@ -88,9 +88,9 @@ export function Home() {
   return (
     <div className="space-y-8">
       <div className="text-center space-y-2">
-        <p className="text-xs font-mono uppercase tracking-widest text-slate-400">Domain Availability Checker</p>
+        <p className="text-xs font-mono uppercase tracking-widest text-slate-400">domain availability checker</p>
         <h1 className="text-5xl font-black tracking-tight">domh</h1>
-        <p className="text-slate-500 font-medium">batch-query any keyword across every TLD.</p>
+        <p className="text-slate-500 font-medium">check any keyword across every TLD.</p>
       </div>
 
       <SearchInput

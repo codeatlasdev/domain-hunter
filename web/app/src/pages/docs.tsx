@@ -30,7 +30,7 @@ const SECTIONS = [
     id: 'scan',
     icon: Terminal,
     title: 'Scan Domains',
-    desc: 'Generate pronounceable names and check availability across multiple TLDs simultaneously.',
+    desc: 'Generate names and check availability across TLDs in parallel.',
     gif: '/docs/scan.gif',
     commands: [
       { label: 'Find 4-letter .com domains', code: 'domh scan --tld com --length 4' },
@@ -42,7 +42,7 @@ const SECTIONS = [
     id: 'check',
     icon: Globe,
     title: 'Dictionary Mode',
-    desc: 'Check a list of your own name ideas against any TLDs.',
+    desc: 'Check your own list of names against any TLDs.',
     gif: '/docs/check.gif',
     commands: [
       { label: 'Create a names file', code: 'echo -e "nexo\\nhivo\\nzuno\\ntevo" > names.txt' },
@@ -52,8 +52,8 @@ const SECTIONS = [
   {
     id: 'pricing',
     icon: DollarSign,
-    title: 'Price Comparison',
-    desc: '19 registrars compared instantly. Direct buy links included.',
+    title: 'Pricing',
+    desc: '19 registrars compared. Direct buy links.',
     gif: '/docs/pricing.gif',
     commands: [
       { label: 'Prices show automatically for available domains', code: 'domh scan zuvotrix --preset startup' },
@@ -62,8 +62,8 @@ const SECTIONS = [
   {
     id: 'verification',
     icon: Layers,
-    title: '4-Layer Verification',
-    desc: 'DNS → RDAP → WHOIS → SSL. No false positives.',
+    title: 'Verification',
+    desc: 'DNS, RDAP, WHOIS, SSL. Four layers, no false positives.',
     gif: '/docs/verification.gif',
     commands: [
       { label: 'Show registrar info for taken domains', code: 'domh scan nexo --preset startup --info' },
@@ -72,8 +72,8 @@ const SECTIONS = [
   {
     id: 'tui',
     icon: Cpu,
-    title: 'Beautiful TUI',
-    desc: 'Split-panel dashboard. Progress, stats, available domains, activity log — all at once.',
+    title: 'TUI',
+    desc: 'Split-panel dashboard with progress, stats, and live results.',
     gif: '/docs/tui.gif',
     commands: [
       { label: 'Run a scan (TUI shows automatically)', code: 'domh scan --tld com --length 3 --workers 50' },
@@ -82,8 +82,8 @@ const SECTIONS = [
   {
     id: 'presets',
     icon: Keyboard,
-    title: 'TLD Presets',
-    desc: '12 curated presets for different use cases.',
+    title: 'Presets',
+    desc: '12 curated TLD sets for common use cases.',
     gif: '/docs/presets.gif',
     commands: [
       { label: 'List all presets', code: 'domh presets' },
@@ -93,8 +93,8 @@ const SECTIONS = [
   {
     id: 'mcp',
     icon: Bot,
-    title: 'AI Agent Integration',
-    desc: 'MCP server for Claude, Cursor, VS Code Copilot, and any AI agent.',
+    title: 'MCP Server',
+    desc: 'AI agent integration via Model Context Protocol.',
     gif: '/docs/mcp.gif',
     commands: [
       { label: 'Install MCP server', code: 'go install github.com/codeatlasdev/domain-hunter/cmd/mcp@latest' },
@@ -108,9 +108,9 @@ export function Docs() {
     <div className="space-y-12">
       {/* Hero */}
       <div className="space-y-4">
-        <h1 className="text-4xl font-black tracking-tight">Documentation</h1>
+        <h1 className="text-4xl font-black tracking-tight">Docs</h1>
         <p className="text-slate-500 font-medium max-w-xl">
-          Everything you need to find your next domain. CLI, web checker, and AI integration.
+          CLI reference, usage examples, and integration guides.
         </p>
       </div>
 
@@ -129,7 +129,7 @@ export function Docs() {
         </div>
         <div className="space-y-2">
           <div className="text-sm font-bold text-slate-600">Quick start</div>
-          <CopyBlock code="domh" label="Run the interactive wizard" />
+          <CopyBlock code="domh" label="interactive wizard" />
         </div>
       </section>
 

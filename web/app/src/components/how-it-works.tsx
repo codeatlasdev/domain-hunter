@@ -1,8 +1,8 @@
 export function HowItWorks() {
   const steps = [
-    { num: '01', title: 'type a keyword', desc: 'Any word, brand name, or acronym. Every TLD in your set gets queried simultaneously.' },
-    { num: '02', title: 'pick your TLDs', desc: 'Choose from curated presets or build a custom set. Your selection is shareable via URL.' },
-    { num: '03', title: 'get live results', desc: 'Parallel queries land in real time. Click any available domain to jump straight to a registrar.' },
+    { num: '01', title: 'type a keyword', desc: 'Any word, brand, or acronym. All TLDs get queried in parallel.' },
+    { num: '02', title: 'pick your TLDs', desc: 'Use a preset or build a custom set. Saved in the URL.' },
+    { num: '03', title: 'get results', desc: 'Results land in real time. Click any available domain to register.' },
   ]
 
   return (

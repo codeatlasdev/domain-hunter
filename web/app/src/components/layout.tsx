@@ -56,7 +56,7 @@ export function Layout() {
               domh
             </div>
             <p className="text-slate-500 text-xs max-w-[200px]">
-              Bulk domain availability checker across 1,437 TLDs. Open source.
+              Bulk domain checker. 1,437 TLDs. Open source.
             </p>
           </div>
           <div>

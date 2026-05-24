@@ -3,23 +3,23 @@ import { useState } from 'react'
 const FAQS = [
   {
     q: 'Is domh free?',
-    a: 'Yes. The CLI is free and open source (MIT). The web checker is free with no signup required.',
+    a: 'Yes. CLI is MIT-licensed. Web checker is free, no signup.',
   },
   {
-    q: 'How accurate is the availability data?',
-    a: 'We use a 4-layer verification: DNS (NS + A + MX), RDAP, WHOIS, and SSL. False positives are extremely rare.',
+    q: 'How accurate is the data?',
+    a: '4-layer verification: DNS (NS + A + MX), RDAP, WHOIS, SSL. False positives are near zero.',
   },
   {
     q: 'What is RDAP?',
-    a: 'RDAP (Registration Data Access Protocol) is the modern replacement for WHOIS. It provides structured, machine-readable domain registration data.',
+    a: 'The modern replacement for WHOIS. Structured, machine-readable domain registration data.',
   },
   {
-    q: 'Which registrars do you link to?',
-    a: 'We link to 19 registrars including Namecheap, Porkbun, Cloudflare, GoDaddy, Google Domains, Dynadot, NameSilo, Spaceship, and more.',
+    q: 'Which registrars?',
+    a: 'Namecheap, Porkbun, Cloudflare, GoDaddy, Google, Dynadot, NameSilo, Spaceship, Hostinger, and 10 more.',
   },
   {
     q: 'Can I save my TLD selection?',
-    a: 'Your TLD selection is saved in the URL. Share the URL to share your exact query and TLD set.',
+    a: 'Yes. Your selection is encoded in the URL. Share the link to share the query.',
   },
 ]
 
