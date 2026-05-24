@@ -105,7 +105,7 @@ const SECTIONS = [
 
 export function Docs() {
   return (
-    <div className="space-y-16">
+    <div className="space-y-12">
       {/* Hero */}
       <div className="space-y-4">
         <h1 className="text-4xl font-black tracking-tight">Documentation</h1>
@@ -165,9 +165,9 @@ export function Docs() {
             </div>
 
             {/* GIF */}
-            <div className="border-[2.5px] border-border shadow-brutal-sm overflow-hidden bg-slate-900">
+            <div className="border-[2.5px] border-border shadow-brutal-sm overflow-hidden bg-slate-900 max-w-2xl">
               <img
-                src={`${section.gif}?v=2`}
+                src={`${section.gif}?v=3`}
                 alt={`${section.title} demo`}
                 className="w-full h-auto block"
               />
