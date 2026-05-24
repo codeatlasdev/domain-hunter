@@ -2,6 +2,7 @@
 domh
 domh-mcp
 domain-hunter
+api
 *.exe
 *.exe~
 *.dll
