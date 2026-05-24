@@ -19,7 +19,7 @@ var (
 
 // GenerateDomains produces pronounceable domain names for the given config.
 func GenerateDomains(length int, pattern Pattern, tlds []string) []string {
-	names := generateNames(length, pattern)
+	names := Generate(length, string(pattern))
 	domains := make([]string, 0, len(names)*len(tlds))
 	for _, tld := range tlds {
 		for _, name := range names {
@@ -27,6 +27,12 @@ func GenerateDomains(length int, pattern Pattern, tlds []string) []string {
 		}
 	}
 	return domains
+}
+
+// Generate produces name strings (without TLD) for given length and pattern.
+func Generate(length int, pattern string) []string {
+	p := Pattern(pattern)
+	return generateNames(length, p)
 }
 
 func generateNames(length int, pattern Pattern) []string {

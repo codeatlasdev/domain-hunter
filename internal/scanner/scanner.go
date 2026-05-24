@@ -1,8 +1,11 @@
 package scanner
 
 import (
+	"context"
 	"crypto/tls"
+	"fmt"
 	"math/rand"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -15,6 +18,7 @@ type Result struct {
 	TLD       string
 	Available bool
 	Error     bool
+	Method    string // "rdap" or "dns"
 	Timestamp time.Time
 }
 
@@ -27,11 +31,12 @@ type Stats struct {
 }
 
 type Scanner struct {
-	clients map[string]*http.Client
-	workers int
-	stats   Stats
-	mu      sync.Mutex
-	results []Result
+	clients  map[string]*http.Client
+	workers  int
+	stats    Stats
+	mu       sync.Mutex
+	results  []Result
+	resolver *net.Resolver
 
 	OnResult func(Result)
 	Done     chan struct{}
@@ -39,24 +44,39 @@ type Scanner struct {
 
 func New(workers int) *Scanner {
 	clients := make(map[string]*http.Client)
-	transport := &http.Transport{
-		MaxIdleConns:        300,
-		MaxIdleConnsPerHost: 100,
-		MaxConnsPerHost:     100,
-		IdleConnTimeout:     90 * time.Second,
-		TLSClientConfig:     &tls.Config{InsecureSkipVerify: false},
-		DisableKeepAlives:   false,
-	}
+
+	// Separate transport per TLD group to avoid connection pool contention
 	for tld := range Providers {
 		clients[tld] = &http.Client{
-			Timeout:   10 * time.Second,
-			Transport: transport,
+			Timeout: 12 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        200,
+				MaxIdleConnsPerHost: 200,
+				MaxConnsPerHost:     200,
+				IdleConnTimeout:     90 * time.Second,
+				TLSHandshakeTimeout: 5 * time.Second,
+				TLSClientConfig:     &tls.Config{InsecureSkipVerify: false},
+				DisableKeepAlives:   false,
+				ForceAttemptHTTP2:   true,
+			},
+			// Don't follow redirects
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
 		}
 	}
+
 	return &Scanner{
 		clients: clients,
 		workers: workers,
 		Done:    make(chan struct{}),
+		resolver: &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{Timeout: 3 * time.Second}
+				return d.DialContext(ctx, network, "1.1.1.1:53")
+			},
+		},
 	}
 }
 
@@ -82,12 +102,12 @@ func (s *Scanner) Run(domains []string) {
 	s.stats.Total = len(domains)
 	s.stats.StartTime = time.Now()
 
-	// Shuffle to distribute load across TLDs
+	// Shuffle to distribute load across TLDs evenly
 	shuffled := make([]string, len(domains))
 	copy(shuffled, domains)
 	rand.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
 
-	work := make(chan string, s.workers*2)
+	work := make(chan string, s.workers*4)
 	var wg sync.WaitGroup
 
 	for i := 0; i < s.workers; i++ {
@@ -125,43 +145,101 @@ func (s *Scanner) Run(domains []string) {
 
 func (s *Scanner) check(domain string) Result {
 	parts := strings.SplitN(domain, ".", 2)
+	if len(parts) != 2 {
+		return Result{Domain: domain, Error: true, Timestamp: time.Now()}
+	}
 	tld := parts[1]
 
-	baseURL, ok := Providers[tld]
-	if !ok {
-		return Result{Domain: domain, TLD: tld, Error: true, Timestamp: time.Now()}
+	baseURL, hasRDAP := Providers[tld]
+
+	// Strategy 1: RDAP (preferred — authoritative)
+	if hasRDAP {
+		r := s.checkRDAP(domain, tld, baseURL)
+		if !r.Error {
+			return r
+		}
+		// RDAP failed — fallback to DNS for unreliable TLDs
 	}
 
+	// Strategy 2: DNS NXDOMAIN check (fallback)
+	return s.checkDNS(domain, tld)
+}
+
+func (s *Scanner) checkRDAP(domain, tld, baseURL string) Result {
 	client := s.clients[tld]
 	url := baseURL + domain
 
 	var resp *http.Response
 	var err error
 
-	// Retry up to 2 times with backoff
 	for attempt := 0; attempt < 3; attempt++ {
-		resp, err = client.Get(url)
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("Accept", "application/rdap+json")
+
+		resp, err = client.Do(req)
 		if err == nil {
 			break
 		}
-		if attempt < 2 {
-			time.Sleep(time.Duration(100*(attempt+1)) * time.Millisecond)
-		}
+
+		// Exponential backoff: 200ms, 500ms, 1s
+		backoff := time.Duration(200*(1<<attempt)) * time.Millisecond
+		time.Sleep(backoff)
 	}
 
 	if err != nil {
-		return Result{Domain: domain, TLD: tld, Error: true, Timestamp: time.Now()}
+		return Result{Domain: domain, TLD: tld, Error: true, Method: "rdap", Timestamp: time.Now()}
 	}
 	defer resp.Body.Close()
 
-	// 429 = rate limited, treat as error
-	if resp.StatusCode == 429 {
-		time.Sleep(500 * time.Millisecond)
-		return Result{Domain: domain, TLD: tld, Error: true, Timestamp: time.Now()}
+	switch resp.StatusCode {
+	case 404, 400:
+		// Not found = available
+		return Result{Domain: domain, TLD: tld, Available: true, Method: "rdap", Timestamp: time.Now()}
+	case 200:
+		// Found = taken
+		return Result{Domain: domain, TLD: tld, Available: false, Method: "rdap", Timestamp: time.Now()}
+	case 429:
+		// Rate limited — sleep and mark as error for retry
+		time.Sleep(2 * time.Second)
+		return Result{Domain: domain, TLD: tld, Error: true, Method: "rdap", Timestamp: time.Now()}
+	default:
+		// Unexpected status — treat as error
+		return Result{Domain: domain, TLD: tld, Error: true, Method: "rdap", Timestamp: time.Now()}
+	}
+}
+
+func (s *Scanner) checkDNS(domain, tld string) Result {
+	// Check if domain has any DNS records (NS, A, AAAA)
+	// If NXDOMAIN → likely available (not 100% authoritative but good signal)
+	_, err := net.LookupNS(domain)
+	if err != nil {
+		// Check if it's NXDOMAIN (not found) vs network error
+		if dnsErr, ok := err.(*net.DNSError); ok && dnsErr.IsNotFound {
+			// Double-check with A record
+			_, err2 := net.LookupHost(domain)
+			if err2 != nil {
+				if dnsErr2, ok2 := err2.(*net.DNSError); ok2 && dnsErr2.IsNotFound {
+					return Result{Domain: domain, TLD: tld, Available: true, Method: "dns", Timestamp: time.Now()}
+				}
+			}
+			return Result{Domain: domain, TLD: tld, Available: true, Method: "dns", Timestamp: time.Now()}
+		}
+		// Network error
+		return Result{Domain: domain, TLD: tld, Error: true, Method: "dns", Timestamp: time.Now()}
 	}
 
-	// 404 or 400 = not found = available
-	available := resp.StatusCode == 404 || resp.StatusCode == 400
+	// Has NS records = registered
+	return Result{Domain: domain, TLD: tld, Available: false, Method: "dns", Timestamp: time.Now()}
+}
 
-	return Result{Domain: domain, TLD: tld, Available: available, Timestamp: time.Now()}
+// GenerateAll creates domains for given TLDs, length, and pattern
+func GenerateAll(tlds []string, length int, pattern string) []string {
+	var all []string
+	names := Generate(length, pattern)
+	for _, tld := range tlds {
+		for _, name := range names {
+			all = append(all, fmt.Sprintf("%s.%s", name, tld))
+		}
+	}
+	return all
 }
