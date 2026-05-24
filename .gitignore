@@ -4,3 +4,4 @@ dist/
 results-*
 results.txt
 *.exe
+__plans/
