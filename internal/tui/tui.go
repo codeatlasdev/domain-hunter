@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/codeatlasdev/domain-hunter/internal/pricing"
 	"github.com/codeatlasdev/domain-hunter/internal/scanner"
 )
 
@@ -59,11 +60,16 @@ type Config struct {
 	Workers int
 }
 
+type availDomain struct {
+	Domain  string
+	Pricing *pricing.PriceResult
+}
+
 type Model struct {
 	spinner   spinner.Model
 	scanner   *scanner.Scanner
 	config    Config
-	available []string
+	available []availDomain
 	logs      []string
 	mu        sync.Mutex
 	done      bool
@@ -88,7 +94,7 @@ func NewModel(sc *scanner.Scanner, cfg Config) *Model {
 		defer m.mu.Unlock()
 		ts := time.Now().Format("15:04:05")
 		if r.Available {
-			m.available = append(m.available, r.Domain)
+			m.available = append(m.available, availDomain{Domain: r.Domain, Pricing: r.Pricing})
 			m.logs = append(m.logs, fmt.Sprintf("[%s] ✓ %s", ts, r.Domain))
 		} else if r.Error {
 			m.logs = append(m.logs, fmt.Sprintf("[%s] ⚠ %s (error)", ts, r.Domain))
@@ -202,7 +208,7 @@ func (m *Model) View() string {
 
 	// Available domains (max 8 lines)
 	m.mu.Lock()
-	availDomains := make([]string, len(m.available))
+	availDomains := make([]availDomain, len(m.available))
 	copy(availDomains, m.available)
 	logs := make([]string, len(m.logs))
 	copy(logs, m.logs)
@@ -216,7 +222,11 @@ func (m *Model) View() string {
 			show = show[len(show)-8:]
 		}
 		for _, d := range show {
-			av.WriteString(fmt.Sprintf("  %s %s\n", greenBold.Render("✓"), boldWhite.Render(d)))
+			priceStr := ""
+			if d.Pricing != nil && d.Pricing.Cheapest != nil {
+				priceStr = dimStyle.Render(fmt.Sprintf("  $%.2f (%s)", d.Pricing.Cheapest.RegisterPrice, d.Pricing.Cheapest.Registrar))
+			}
+			av.WriteString(fmt.Sprintf("  %s %s%s\n", greenBold.Render("✓"), boldWhite.Render(d.Domain), priceStr))
 		}
 		if len(availDomains) > 8 {
 			av.WriteString(dimStyle.Render(fmt.Sprintf("\n  + %d more (see results file)", len(availDomains)-8)))

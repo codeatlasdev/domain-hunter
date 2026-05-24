@@ -523,7 +523,15 @@ func startScanWithDomains(domains []string, tlds []string, workers int, formats 
 	if len(available) > 0 {
 		fmt.Println(greenBold.Render("  Available domains:"))
 		for _, d := range available {
-			fmt.Printf("    ✓ %s\n", d)
+			// Find pricing from results
+			priceStr := ""
+			for _, r := range results {
+				if r.Domain == d && r.Pricing != nil && r.Pricing.Cheapest != nil {
+					priceStr = dimStyle.Render(fmt.Sprintf("  $%.2f (%s)", r.Pricing.Cheapest.RegisterPrice, r.Pricing.Cheapest.Registrar))
+					break
+				}
+			}
+			fmt.Printf("    ✓ %s%s\n", d, priceStr)
 		}
 		fmt.Println()
 	}

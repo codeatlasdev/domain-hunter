@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/codeatlasdev/domain-hunter/internal/pricing"
 )
 
 type Result struct {
@@ -21,6 +23,7 @@ type Result struct {
 	Method     string   // primary method that determined result
 	Signatures []string // all methods that confirmed: "DNS_NS", "DNS_A", "DNS_MX", "RDAP", "WHOIS", "SSL"
 	Timestamp  time.Time
+	Pricing    *pricing.PriceResult
 }
 
 type Stats struct {
@@ -147,6 +150,8 @@ func (s *Scanner) Run(domains []string) {
 				atomic.AddInt64(&s.stats.Checked, 1)
 				if r.Available {
 					atomic.AddInt64(&s.stats.Available, 1)
+					pr := pricing.GetPrices(r.Domain)
+					r.Pricing = &pr
 				}
 				if r.Error {
 					atomic.AddInt64(&s.stats.Errors, 1)

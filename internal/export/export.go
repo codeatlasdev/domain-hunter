@@ -31,9 +31,16 @@ type Exporter struct {
 }
 
 type jsonEntry struct {
-	Domain    string `json:"domain"`
-	TLD       string `json:"tld"`
-	CheckedAt string `json:"checked_at"`
+	Domain    string       `json:"domain"`
+	TLD       string       `json:"tld"`
+	CheckedAt string       `json:"checked_at"`
+	Cheapest  *jsonCheap   `json:"cheapest,omitempty"`
+}
+
+type jsonCheap struct {
+	Registrar string  `json:"registrar"`
+	Price     float64 `json:"price"`
+	BuyURL    string  `json:"buy_url"`
 }
 
 func New(formats []Format) (*Exporter, error) {
@@ -99,11 +106,19 @@ func (e *Exporter) Append(r scanner.Result) {
 			e.csvWriter.Write([]string{r.Domain, r.TLD, ts})
 			e.csvWriter.Flush()
 		case FormatJSON:
-			e.jsonItems = append(e.jsonItems, jsonEntry{
+			entry := jsonEntry{
 				Domain:    r.Domain,
 				TLD:       r.TLD,
 				CheckedAt: ts,
-			})
+			}
+			if r.Pricing != nil && r.Pricing.Cheapest != nil {
+				entry.Cheapest = &jsonCheap{
+					Registrar: r.Pricing.Cheapest.Registrar,
+					Price:     r.Pricing.Cheapest.RegisterPrice,
+					BuyURL:    r.Pricing.Cheapest.BuyURL,
+				}
+			}
+			e.jsonItems = append(e.jsonItems, entry)
 		}
 	}
 }
