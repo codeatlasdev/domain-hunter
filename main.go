@@ -6,8 +6,10 @@ import (
 	"crypto/sha1"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -813,6 +815,24 @@ func runUpdate() {
 		os.Exit(1)
 	}
 
+	// Check if the binary's directory is writable before attempting the update.
+	// /usr/local/bin is root-owned on macOS even when the binary is user-owned —
+	// go-selfupdate writes a .domh.new temp file in that directory.
+	exeDir := filepath.Dir(exe)
+	if !isDirWritable(exeDir) {
+		fmt.Println("Binary directory requires elevated permissions. Running with sudo...")
+		fmt.Println()
+		cmd := exec.Command("sudo", exe, "update")
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "\nUpdate failed. Run manually:\n  sudo %s update\n", exe)
+			os.Exit(1)
+		}
+		return
+	}
+
 	var updateErr error
 	err = spinner.New().
 		Title(fmt.Sprintf("Updating to %s...", latest.Version())).
@@ -825,11 +845,26 @@ func runUpdate() {
 		os.Exit(1)
 	}
 	if updateErr != nil {
-		fmt.Fprintf(os.Stderr, "Update failed: %v\n", updateErr)
+		if errors.Is(updateErr, os.ErrPermission) {
+			fmt.Fprintf(os.Stderr, "Permission denied. Run:\n  sudo %s update\n", exe)
+		} else {
+			fmt.Fprintf(os.Stderr, "Update failed: %v\n", updateErr)
+		}
 		os.Exit(1)
 	}
 
 	fmt.Printf("✓ Updated to %s\n", latest.Version())
+}
+
+// isDirWritable reports whether dir allows file creation by the current process.
+func isDirWritable(dir string) bool {
+	f, err := os.CreateTemp(dir, ".domh-write-test-*")
+	if err != nil {
+		return false
+	}
+	f.Close()
+	os.Remove(f.Name())
+	return true
 }
 
 func runInteractive() {
