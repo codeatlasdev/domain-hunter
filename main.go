@@ -3,9 +3,12 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/sha1"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -34,6 +37,9 @@ var (
 	commit  = "none"
 )
 
+//go:embed SKILL.md
+var skillMD string
+
 var (
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#2563EB"))
 	greenBold  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#10B981"))
@@ -61,6 +67,8 @@ func main() {
 		runPresets()
 	case "mcp":
 		runMCP()
+	case "skills":
+		runSkills(os.Args[2:])
 	case "update":
 		runUpdate()
 	case "version":
@@ -82,6 +90,7 @@ func printHelp() {
 	fmt.Println("  domh scan [name] [flags]      Scan domains")
 	fmt.Println("  domh check <file> [flags]     Dictionary mode")
 	fmt.Println("  domh suggest [names] [flags]  Check name list, output JSON (agent-friendly)")
+	fmt.Println("  domh skills [install|mcp]     Install agent skill and configure MCP")
 	fmt.Println("  domh tlds [flags]             List TLDs")
 	fmt.Println("  domh presets                  List presets")
 	fmt.Println("  domh mcp                      Start MCP server (stdio)")
@@ -1279,4 +1288,179 @@ func startScanWithDomains(domains []string, tlds []string, workers int, formats 
 
 	fmt.Println(dimStyle.Render(fmt.Sprintf("  Saved to: %s", strings.Join(exp.Filenames(), ", "))))
 	fmt.Println()
+}
+
+func runSkills(args []string) {
+	action := "all"
+	if len(args) > 0 {
+		action = args[0]
+	}
+
+	switch action {
+	case "install":
+		skillsInstall()
+	case "mcp":
+		skillsMCP()
+	default:
+		skillsInstall()
+		fmt.Println()
+		skillsMCP()
+	}
+}
+
+func skillsInstall() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Could not find home dir: %v\n", err)
+		os.Exit(1)
+	}
+
+	skillDir := filepath.Join(home, ".agents", "skills", "domain-hunter")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "Could not create skill dir: %v\n", err)
+		os.Exit(1)
+	}
+
+	skillDest := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(skillDest, []byte(skillMD), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "Could not write SKILL.md: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Update ~/.agents/.skill-lock.json
+	lockPath := filepath.Join(home, ".agents", ".skill-lock.json")
+	skillsUpdateLock(lockPath, skillDir)
+
+	fmt.Println(greenBold.Render("✓") + " Skill installed")
+	fmt.Println(dimStyle.Render("  " + skillDest))
+}
+
+func skillsUpdateLock(lockPath, _ string) {
+	type skillEntry struct {
+		Source          string `json:"source"`
+		SourceType      string `json:"sourceType"`
+		SourceURL       string `json:"sourceUrl"`
+		SkillPath       string `json:"skillPath"`
+		SkillFolderHash string `json:"skillFolderHash"`
+		InstalledAt     string `json:"installedAt,omitempty"`
+		UpdatedAt       string `json:"updatedAt"`
+	}
+	type lockFile struct {
+		Version int                    `json:"version"`
+		Skills  map[string]skillEntry  `json:"skills"`
+	}
+
+	var lock lockFile
+	lock.Version = 3
+	lock.Skills = make(map[string]skillEntry)
+
+	// Read existing lock if present
+	if data, err := os.ReadFile(lockPath); err == nil {
+		_ = json.Unmarshal(data, &lock)
+		if lock.Skills == nil {
+			lock.Skills = make(map[string]skillEntry)
+		}
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	existing := lock.Skills["domain-hunter"]
+	installedAt := existing.InstalledAt
+	if installedAt == "" {
+		installedAt = now
+	}
+
+	// Hash the skill folder content (SHA1 of SKILL.md bytes)
+	hash := fmt.Sprintf("%x", sha1bytes([]byte(skillMD)))
+
+	lock.Skills["domain-hunter"] = skillEntry{
+		Source:          "codeatlasdev/domain-hunter",
+		SourceType:      "github",
+		SourceURL:       "https://github.com/codeatlasdev/domain-hunter.git",
+		SkillPath:       "SKILL.md",
+		SkillFolderHash: hash,
+		InstalledAt:     installedAt,
+		UpdatedAt:       now,
+	}
+
+	data, err := json.MarshalIndent(lock, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(lockPath, data, 0o644)
+}
+
+// sha1bytes returns the SHA-1 digest of b (20 bytes).
+func sha1bytes(b []byte) []byte {
+	h := sha1.New()
+	h.Write(b)
+	return h.Sum(nil)
+}
+
+func skillsMCP() {
+	self, err := os.Executable()
+	if err != nil || self == "" {
+		self = "domh"
+	}
+
+	type mcpServer struct {
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
+	}
+	type mcpConfig struct {
+		MCPServers map[string]mcpServer `json:"mcpServers"`
+	}
+
+	entry := mcpServer{Command: self, Args: []string{"mcp"}}
+
+	// Try to write/merge into .mcp.json in the current directory
+	mcpPath := ".mcp.json"
+	configured := skillsWriteMCPFile(mcpPath, "domh", entry)
+
+	// Also merge into ~/.config/omp/mcp.json if it exists
+	home, _ := os.UserHomeDir()
+	globalMCPPath := filepath.Join(home, ".config", "omp", "mcp.json")
+	if _, err := os.Stat(globalMCPPath); err == nil {
+		skillsWriteMCPFile(globalMCPPath, "domh", entry)
+	}
+
+	if configured {
+		fmt.Println(greenBold.Render("✓") + " MCP configured")
+		fmt.Println(dimStyle.Render("  " + mcpPath))
+	} else {
+		fmt.Println(titleStyle.Render("◆ MCP — add to your agent config:"))
+	}
+	fmt.Println()
+
+	snippet := mcpConfig{MCPServers: map[string]mcpServer{"domh": entry}}
+	b, _ := json.MarshalIndent(snippet, "", "  ")
+	fmt.Println(dimStyle.Render("  .mcp.json  |  claude_desktop_config.json  |  ~/.config/omp/mcp.json"))
+	fmt.Println()
+	for _, line := range strings.Split(string(b), "\n") {
+		fmt.Println("    " + line)
+	}
+	fmt.Println()
+	fmt.Println(dimStyle.Render(`  Then ask your agent: "check if kora, nexus, velo are available — global-saas preset"`))
+}
+
+// skillsWriteMCPFile merges a single mcpServers entry into a JSON file.
+// Creates the file if absent. Returns true if the file was written successfully.
+func skillsWriteMCPFile(path, name string, server interface{}) bool {
+	// Read existing config or start fresh
+	raw := map[string]interface{}{}
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &raw)
+	}
+
+	servers, _ := raw["mcpServers"].(map[string]interface{})
+	if servers == nil {
+		servers = map[string]interface{}{}
+	}
+	servers[name] = server
+	raw["mcpServers"] = servers
+
+	data, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return false
+	}
+	return os.WriteFile(path, data, 0o644) == nil
 }
