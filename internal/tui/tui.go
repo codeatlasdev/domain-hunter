@@ -63,6 +63,7 @@ func NewModel(sc *scanner.Scanner, cfg Config) *Model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(blueLight)
+	originalOnResult := sc.OnResult
 
 	m := &Model{
 		spinner: s,
@@ -87,6 +88,9 @@ func NewModel(sc *scanner.Scanner, cfg Config) *Model {
 		}
 		if len(m.logs) > 500 {
 			m.logs = m.logs[len(m.logs)-500:]
+		}
+		if originalOnResult != nil {
+			originalOnResult(r)
 		}
 	}
 
