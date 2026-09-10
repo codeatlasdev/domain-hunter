@@ -24,6 +24,7 @@ import (
 	"github.com/codeatlasdev/domain-hunter/internal/pricing"
 	"github.com/codeatlasdev/domain-hunter/internal/registry"
 	"github.com/codeatlasdev/domain-hunter/internal/scanner"
+	"github.com/codeatlasdev/domain-hunter/internal/trademark"
 	"github.com/codeatlasdev/domain-hunter/internal/tui"
 	"github.com/codeatlasdev/domain-hunter/internal/wizard"
 )
@@ -52,6 +53,8 @@ func main() {
 		runCLI(os.Args[2:])
 	case "check":
 		runCheck(os.Args[2:])
+	case "suggest":
+		runSuggest(os.Args[2:])
 	case "tlds":
 		runTLDs(os.Args[2:])
 	case "presets":
@@ -75,14 +78,15 @@ func printHelp() {
 	fmt.Println(titleStyle.Render("◆ domh") + " — bulk domain availability checker")
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  domh                       Interactive wizard")
-	fmt.Println("  domh scan [name] [flags]   Scan domains")
-	fmt.Println("  domh check <file> [flags]  Dictionary mode")
-	fmt.Println("  domh tlds [flags]          List TLDs")
-	fmt.Println("  domh presets               List presets")
-	fmt.Println("  domh mcp                   Start MCP server (stdio)")
-	fmt.Println("  domh update                Self-update")
-	fmt.Println("  domh version               Version info")
+	fmt.Println("  domh                          Interactive wizard")
+	fmt.Println("  domh scan [name] [flags]      Scan domains")
+	fmt.Println("  domh check <file> [flags]     Dictionary mode")
+	fmt.Println("  domh suggest [names] [flags]  Check name list, output JSON (agent-friendly)")
+	fmt.Println("  domh tlds [flags]             List TLDs")
+	fmt.Println("  domh presets                  List presets")
+	fmt.Println("  domh mcp                      Start MCP server (stdio)")
+	fmt.Println("  domh update                   Self-update")
+	fmt.Println("  domh version                  Version info")
 	fmt.Println()
 	fmt.Println("Scan flags:")
 	fmt.Println("  --tld          TLDs (comma-separated)       [default: com]")
@@ -102,6 +106,14 @@ func printHelp() {
 	fmt.Println("  --yes, -y      Skip confirmations")
 	fmt.Println("  --force        Skip performance warnings")
 	fmt.Println("  --batch, --no-tui  Plain output (no TUI, CI/agent-friendly)")
+	fmt.Println()
+	fmt.Println("Suggest flags:")
+	fmt.Println("  --tld          TLDs (comma-separated)       [default: com,io,app]")
+	fmt.Println("  --preset       Use preset TLD set (saas, startup, brazil, global-saas, etc)")
+	fmt.Println("  --stdin        Read names from stdin, one per line")
+	fmt.Println("  --workers      Concurrent workers           [default: 30]")
+	fmt.Println("  --stream       Stream NDJSON results as they arrive")
+	fmt.Println("  --no-trademark Skip trademark search URLs in output")
 	fmt.Println()
 	fmt.Println("Check flags:")
 	fmt.Println("  --tld              TLDs (comma-separated)       [default: com]")
@@ -137,35 +149,48 @@ func runMCP() {
 	s := mcpserver.NewMCPServer("domh", version, mcpserver.WithToolCapabilities(false))
 
 	s.AddTool(mcp.NewTool("check_domain",
-		mcp.WithDescription("Check if a domain name is available for registration"),
-		mcp.WithString("domain", mcp.Required(), mcp.Description("Full domain name to check (e.g. coolname.com)")),
+		mcp.WithDescription("Check if a single domain name is available for registration. Returns availability, method, and pricing."),
+		mcp.WithString("domain", mcp.Required(), mcp.Description("Full domain name to check (e.g. coolname.com, myapp.com.br)")),
 	), mcpCheckDomain)
 
 	s.AddTool(mcp.NewTool("check_domains",
-		mcp.WithDescription("Check multiple domain names for availability"),
-		mcp.WithString("domains", mcp.Required(), mcp.Description("Comma-separated list of domains to check")),
+		mcp.WithDescription("Check multiple full domain names for availability. Returns availability, pricing, and buy URLs for each."),
+		mcp.WithString("domains", mcp.Required(), mcp.Description("Comma-separated list of full domains (e.g. cool.com,cool.dev,cool.com.br)")),
 	), mcpCheckDomains)
 
+	s.AddTool(mcp.NewTool("scan_names",
+		mcp.WithDescription("Check one or more base names across multiple TLDs. Takes a list of names and TLD list or preset, returns all combinations with availability, pricing, and trademark search URLs. Best for AI-driven naming workflows."),
+		mcp.WithString("names", mcp.Required(), mcp.Description("Comma-separated base names without TLD (e.g. kora,nexus,velo,plex)")),
+		mcp.WithString("tlds", mcp.Description("Comma-separated TLDs (e.g. com,io,app,com.br). Omit if using preset.")),
+		mcp.WithString("preset", mcp.Description("TLD preset: saas, startup, brazil, brazil-full, brazil-saas, global-saas, tech, popular, classic, enterprise, creative, ecommerce, finance, web, trendy, country, br-pro")),
+		mcp.WithBoolean("trademark", mcp.Description("Include trademark search URLs (INPI, USPTO, EUIPO). Default: true")),
+	), mcpScanNames)
+
 	s.AddTool(mcp.NewTool("check_with_preset",
-		mcp.WithDescription("Check a name across a curated set of TLDs"),
+		mcp.WithDescription("Check a single base name across a curated TLD preset."),
 		mcp.WithString("name", mcp.Required(), mcp.Description("Base name to check (without TLD)")),
-		mcp.WithString("preset", mcp.Required(), mcp.Description("Preset name: startup, tech, creative, ecommerce, finance, popular, classic, enterprise, web, trendy, country, brazil")),
+		mcp.WithString("preset", mcp.Required(), mcp.Description("Preset: saas, startup, brazil, brazil-full, global-saas, tech, popular, classic, enterprise, creative, ecommerce, finance, web, trendy, country, br-pro")),
 	), mcpCheckWithPreset)
 
 	s.AddTool(mcp.NewTool("generate_names",
-		mcp.WithDescription("Generate pronounceable domain names by pattern"),
-		mcp.WithNumber("length", mcp.Required(), mcp.Description("Name length: 3, 4, or 5")),
-		mcp.WithString("pattern", mcp.Description("Pattern: CVC, VCV, CVCV, CVCVC, ALL. Default: ALL")),
-		mcp.WithString("tld", mcp.Description("TLD to append. Default: com")),
+		mcp.WithDescription("Generate pronounceable domain name candidates by length and phonetic pattern. Use to build a candidate list before checking availability."),
+		mcp.WithNumber("length", mcp.Required(), mcp.Description("Name length: 3, 4, or 5 characters")),
+		mcp.WithString("pattern", mcp.Description("Phonetic pattern: CVC, VCV, CVCV, CVCVC, ALL. Default: ALL")),
+		mcp.WithString("tld", mcp.Description("TLD to append for preview. Default: com")),
 	), mcpGenerateNames)
 
 	s.AddTool(mcp.NewTool("get_prices",
-		mcp.WithDescription("Get registrar prices and buy links for a domain"),
-		mcp.WithString("domain", mcp.Required(), mcp.Description("Domain to get prices for (e.g. coolname.com)")),
+		mcp.WithDescription("Get registrar prices and buy links for a domain. Covers 20+ registrars including Registro.br for .br TLDs."),
+		mcp.WithString("domain", mcp.Required(), mcp.Description("Full domain name (e.g. coolname.com, myapp.com.br)")),
 	), mcpGetPrices)
 
+	s.AddTool(mcp.NewTool("trademark_urls",
+		mcp.WithDescription("Get trademark search URLs for a name across INPI (Brazil), USPTO (US), and EUIPO (EU). Use to check if a candidate name is already trademarked."),
+		mcp.WithString("name", mcp.Required(), mcp.Description("Base name to search trademarks for (e.g. kora, nexus)")),
+	), mcpTrademarkURLs)
+
 	s.AddTool(mcp.NewTool("list_presets",
-		mcp.WithDescription("List all available TLD presets with their TLDs"),
+		mcp.WithDescription("List all available TLD presets with their TLD lists."),
 	), mcpListPresets)
 
 	if err := mcpserver.ServeStdio(s); err != nil {
@@ -270,6 +295,138 @@ func mcpListPresets(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResu
 	return mcp.NewToolResultText(string(b)), nil
 }
 
+func mcpScanNames(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	rawNames, err := req.RequireString("names")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	var names []string
+	for _, n := range strings.Split(rawNames, ",") {
+		n = strings.TrimSpace(strings.ToLower(n))
+		if n != "" {
+			names = append(names, n)
+		}
+	}
+	if len(names) == 0 {
+		return mcp.NewToolResultError("no valid names provided"), nil
+	}
+
+	// Resolve TLDs from preset or explicit list
+	tlds := []string{"com", "io", "app"}
+	if rawTLDs := req.GetString("tlds", ""); rawTLDs != "" {
+		tlds = nil
+		for _, t := range strings.Split(rawTLDs, ",") {
+			if t = strings.TrimSpace(strings.ToLower(t)); t != "" {
+				tlds = append(tlds, t)
+			}
+		}
+	} else if presetName := req.GetString("preset", ""); presetName != "" {
+		p, ok := presets.Get(presetName)
+		if !ok {
+			return mcp.NewToolResultError(fmt.Sprintf("unknown preset: %s", presetName)), nil
+		}
+		tlds = p
+	}
+
+	includeTrademark := req.GetBool("trademark", true)
+
+	// Build domain list
+	var domains []string
+	for _, name := range names {
+		for _, tld := range tlds {
+			domains = append(domains, fmt.Sprintf("%s.%s", name, tld))
+		}
+	}
+
+	results := scanner.CheckMultiple(domains)
+
+	type domainResult struct {
+		Domain    string                   `json:"domain"`
+		Name      string                   `json:"name"`
+		TLD       string                   `json:"tld"`
+		Available bool                     `json:"available"`
+		Error     bool                     `json:"error,omitempty"`
+		Method    string                   `json:"method,omitempty"`
+		Pricing   *pricing.PriceResult     `json:"pricing,omitempty"`
+		Trademark *trademark.SearchURLs    `json:"trademark,omitempty"`
+	}
+
+	type scanResult struct {
+		Query struct {
+			Names []string `json:"names"`
+			TLDs  []string `json:"tlds"`
+		} `json:"query"`
+		Available []domainResult `json:"available"`
+		Taken     []domainResult `json:"taken"`
+		Errors    []domainResult `json:"errors"`
+		Stats     struct {
+			Checked   int `json:"checked"`
+			Available int `json:"available"`
+			Taken     int `json:"taken"`
+			Errors    int `json:"errors"`
+		} `json:"stats"`
+	}
+
+	var out scanResult
+	out.Query.Names = names
+	out.Query.TLDs = tlds
+
+	// Deduplicate trademark URLs per name
+	tmCache := make(map[string]*trademark.SearchURLs)
+	if includeTrademark {
+		for _, name := range names {
+			urls := trademark.For(name)
+			tmCache[name] = &urls
+		}
+	}
+
+	for _, r := range results {
+		// Extract base name: everything before first dot
+		baseName := strings.SplitN(r.Domain, ".", 2)[0]
+		if r.Available {
+			pr := pricing.GetPrices(r.Domain)
+			dr := domainResult{
+				Domain:    r.Domain,
+				Name:      baseName,
+				TLD:       r.TLD,
+				Available: true,
+				Method:    r.Method,
+				Pricing:   &pr,
+				Trademark: tmCache[baseName],
+			}
+			out.Available = append(out.Available, dr)
+		} else if r.Error {
+			out.Errors = append(out.Errors, domainResult{Domain: r.Domain, Name: baseName, TLD: r.TLD, Error: true})
+		} else {
+			out.Taken = append(out.Taken, domainResult{Domain: r.Domain, Name: baseName, TLD: r.TLD, Available: false})
+		}
+	}
+
+	out.Stats.Checked = len(results)
+	out.Stats.Available = len(out.Available)
+	out.Stats.Taken = len(out.Taken)
+	out.Stats.Errors = len(out.Errors)
+
+	b, _ := json.Marshal(out)
+	return mcp.NewToolResultText(string(b)), nil
+}
+
+func mcpTrademarkURLs(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	name, err := req.RequireString("name")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	name = strings.TrimSpace(strings.ToLower(name))
+	urls := trademark.For(name)
+	type result struct {
+		Name      string               `json:"name"`
+		Trademark trademark.SearchURLs `json:"trademark"`
+	}
+	b, _ := json.Marshal(result{Name: name, Trademark: urls})
+	return mcp.NewToolResultText(string(b)), nil
+}
+
 func runCheck(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Usage: domh check <words-file> [--tld com,dev,io]")
@@ -357,6 +514,205 @@ func runCheck(args []string) {
 
 	delay := time.Duration(delayMs) * time.Millisecond
 	startScanWithDomains(domains, tlds, workers, formats, "dict", delay, showRegistered, false, false)
+}
+
+// suggestResult is the JSON schema for `domh suggest` output.
+type suggestResult struct {
+	Query struct {
+		Names []string `json:"names"`
+		TLDs  []string `json:"tlds"`
+	} `json:"query"`
+	Available []suggestDomain `json:"available"`
+	Taken     []suggestDomain `json:"taken"`
+	Errors    []suggestDomain `json:"errors"`
+	Stats     struct {
+		Checked     int   `json:"checked"`
+		Available   int   `json:"available"`
+		Taken       int   `json:"taken"`
+		Errors      int   `json:"errors"`
+		ElapsedMs   int64 `json:"elapsed_ms"`
+	} `json:"stats"`
+}
+
+type suggestDomain struct {
+	Domain    string               `json:"domain"`
+	Name      string               `json:"name"`
+	TLD       string               `json:"tld"`
+	Available bool                 `json:"available"`
+	Method    string               `json:"method,omitempty"`
+	Pricing   *pricing.PriceResult `json:"pricing,omitempty"`
+	Trademark *trademark.SearchURLs `json:"trademark,omitempty"`
+}
+
+func runSuggest(args []string) {
+	tlds := []string{"com", "io", "app"}
+	tldSet := false
+	presetName := ""
+	workers := 30
+	fromStdin := false
+	stream := false
+	includeTrademark := true
+	var names []string
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--tld":
+			if i+1 < len(args) {
+				tlds = nil
+				for _, t := range strings.Split(args[i+1], ",") {
+					if t = strings.TrimSpace(t); t != "" {
+						tlds = append(tlds, t)
+					}
+				}
+				tldSet = true
+				i++
+			}
+		case "--preset":
+			if i+1 < len(args) {
+				presetName = args[i+1]
+				i++
+			}
+		case "--workers":
+			if i+1 < len(args) {
+				if w, err := strconv.Atoi(args[i+1]); err == nil && w > 0 {
+					workers = w
+				}
+				i++
+			}
+		case "--stdin":
+			fromStdin = true
+		case "--stream":
+			stream = true
+		case "--no-trademark":
+			includeTrademark = false
+		default:
+			if !strings.HasPrefix(args[i], "-") {
+				names = append(names, strings.ToLower(strings.TrimSpace(args[i])))
+			}
+		}
+	}
+
+	// Auto-detect non-TTY stdin piping
+	if !fromStdin {
+		if fi, _ := os.Stdin.Stat(); fi != nil && (fi.Mode()&os.ModeCharDevice) == 0 {
+			fromStdin = true
+		}
+	}
+
+	// Read names from stdin
+	if fromStdin {
+		sc := bufio.NewScanner(os.Stdin)
+		for sc.Scan() {
+			if n := strings.ToLower(strings.TrimSpace(sc.Text())); n != "" {
+				names = append(names, n)
+			}
+		}
+	}
+
+	if len(names) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: domh suggest <name1> [name2...] [--tld com,io,app] [--preset saas]")
+		fmt.Fprintln(os.Stderr, "       echo -e 'kora\\nnexus' | domh suggest --preset global-saas")
+		os.Exit(1)
+	}
+
+	// Resolve TLDs
+	if presetName != "" {
+		p, ok := presets.Get(presetName)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "Unknown preset: %s\nRun 'domh presets' to see available presets.\n", presetName)
+			os.Exit(1)
+		}
+		tlds = p
+	} else if !tldSet {
+		tlds = []string{"com", "io", "app"}
+	}
+
+	// Build domain list
+	var domains []string
+	for _, name := range names {
+		for _, tld := range tlds {
+			domains = append(domains, fmt.Sprintf("%s.%s", name, tld))
+		}
+	}
+
+	// Trademark URL cache (one per unique name)
+	tmCache := make(map[string]*trademark.SearchURLs)
+	if includeTrademark {
+		for _, name := range names {
+			urls := trademark.For(name)
+			tmCache[name] = &urls
+		}
+	}
+
+	start := time.Now()
+
+	if stream {
+		// NDJSON streaming: emit each result as it arrives
+		s := scanner.NewWithDelay(workers, 0)
+		s.OnResult = func(r scanner.Result) {
+			baseName := strings.SplitN(r.Domain, ".", 2)[0]
+			sd := suggestDomain{
+				Domain:    r.Domain,
+				Name:      baseName,
+				TLD:       r.TLD,
+				Available: r.Available,
+				Method:    r.Method,
+				Trademark: tmCache[baseName],
+			}
+			if r.Available {
+				pr := pricing.GetPrices(r.Domain)
+				sd.Pricing = &pr
+			}
+			b, _ := json.Marshal(sd)
+			fmt.Println(string(b))
+		}
+		s.Run(domains)
+		<-s.Done
+		return
+	}
+
+	// Collect all results, then output summary JSON
+	results := scanner.CheckMultiple(domains)
+
+	var out suggestResult
+	out.Query.Names = names
+	out.Query.TLDs = tlds
+	out.Available = []suggestDomain{}
+	out.Taken = []suggestDomain{}
+	out.Errors = []suggestDomain{}
+
+	for _, r := range results {
+		baseName := strings.SplitN(r.Domain, ".", 2)[0]
+		sd := suggestDomain{
+			Domain:    r.Domain,
+			Name:      baseName,
+			TLD:       r.TLD,
+			Available: r.Available,
+			Method:    r.Method,
+			Trademark: tmCache[baseName],
+		}
+		if r.Available {
+			pr := pricing.GetPrices(r.Domain)
+			sd.Pricing = &pr
+		}
+		switch {
+		case r.Error:
+			out.Errors = append(out.Errors, sd)
+		case r.Available:
+			out.Available = append(out.Available, sd)
+		default:
+			out.Taken = append(out.Taken, sd)
+		}
+	}
+
+	out.Stats.Checked = len(results)
+	out.Stats.Available = len(out.Available)
+	out.Stats.Taken = len(out.Taken)
+	out.Stats.Errors = len(out.Errors)
+	out.Stats.ElapsedMs = time.Since(start).Milliseconds()
+
+	b, _ := json.MarshalIndent(out, "", "  ")
+	fmt.Println(string(b))
 }
 
 func runTLDs(args []string) {
@@ -506,6 +862,7 @@ func runCLI(args []string) {
 	yes := false
 	force := false
 	batch := false
+	jsonOutput := false
 	baseName := ""
 
 	// Parse args — collect positional (base name) and flags
@@ -587,6 +944,9 @@ func runCLI(args []string) {
 		case "--force":
 			force = true
 		case "--batch", "--no-tui":
+			batch = true
+		case "--json":
+			jsonOutput = true
 			batch = true
 		default:
 			if !strings.HasPrefix(args[i], "-") && baseName == "" {
@@ -678,13 +1038,13 @@ func runCLI(args []string) {
 	delay := time.Duration(delayMs) * time.Millisecond
 
 	if batch {
-		startBatchScan(domains, tlds, workers, formats, delay, showRegistered, info)
+		startBatchScan(domains, tlds, workers, formats, delay, showRegistered, info, jsonOutput)
 	} else {
 		startScanWithDomains(domains, tlds, workers, formats, string(pattern), delay, showRegistered, info, false)
 	}
 }
 
-func startBatchScan(domains []string, tlds []string, workers int, formats []export.Format, delay time.Duration, showRegistered bool, info bool) {
+func startBatchScan(domains []string, tlds []string, workers int, formats []export.Format, delay time.Duration, showRegistered bool, info bool, jsonOutput bool) {
 	exp, err := export.NewWithOptions(formats, showRegistered)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Export error: %v\n", err)
@@ -696,6 +1056,25 @@ func startBatchScan(domains []string, tlds []string, workers int, formats []expo
 
 	sc.OnResult = func(r scanner.Result) {
 		exp.Append(r)
+
+		if jsonOutput {
+			type jsonLine struct {
+				Domain    string               `json:"domain"`
+				Available bool                 `json:"available"`
+				Error     bool                 `json:"error,omitempty"`
+				Method    string               `json:"method,omitempty"`
+				TLD       string               `json:"tld,omitempty"`
+				Pricing   *pricing.PriceResult `json:"pricing,omitempty"`
+			}
+			jl := jsonLine{Domain: r.Domain, Available: r.Available, Error: r.Error, Method: r.Method, TLD: r.TLD}
+			if r.Available {
+				pr := pricing.GetPrices(r.Domain)
+				jl.Pricing = &pr
+			}
+			b, _ := json.Marshal(jl)
+			fmt.Println(string(b))
+			return
+		}
 
 		status := "TAKEN"
 		if r.Available {

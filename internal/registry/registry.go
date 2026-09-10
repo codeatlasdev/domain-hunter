@@ -144,6 +144,12 @@ func GetCachedTLDs() ([]TLDInfo, error) {
 func GetRDAPEndpoint(tld string) string {
 	tld = strings.ToLower(tld)
 
+	// All *.br SLDs (com.br, net.br, app.br, etc.) route to registro.br.
+	// IANA bootstrap only maps bare "br", not second-level .br TLDs.
+	if tld == "br" || strings.HasSuffix(tld, ".br") {
+		return "https://rdap.registro.br/domain/"
+	}
+
 	// Try cached rdap.json first
 	dir, err := cacheDir()
 	if err == nil {
